@@ -1,0 +1,8 @@
+## Interface: 30300
+## Title: DungeonClear
+## Notes: Autonomous dungeon-clearing companion for mod-dungeon-clear.
+## Author: Jared
+## Version: 1.0
+## SavedVariables: DungeonClearDB
+
+DungeonClear.lua
