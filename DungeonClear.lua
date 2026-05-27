@@ -6,7 +6,6 @@ local Prefix = "DC"
 
 -- DB Setup
 DungeonClearDB = DungeonClearDB or {
-    hideChatSpam = true,
     visible = false,
     point = "CENTER",
     relativePoint = "CENTER",
@@ -18,6 +17,11 @@ DungeonClearDB = DungeonClearDB or {
 local bosses = {}
 local bossRows = {}
 local pollTimer = nil
+local currentPage = 1
+local RedrawBossList
+local UpdateFrameHeight, UpdateLayout
+local isDCOn = false
+
 
 -- UI Frame Creation
 local frame = CreateFrame("Frame", "DungeonClearFrame", UIParent)
@@ -26,6 +30,9 @@ frame:SetMovable(true)
 frame:EnableMouse(true)
 frame:RegisterForDrag("LeftButton")
 frame:SetClampedToScreen(true)
+frame:SetScript("OnDragStart", function(self)
+    self:StartMoving()
+end)
 
 -- Sleek Dark Backdrop
 frame:SetBackdrop({
@@ -69,7 +76,7 @@ statusLabel:SetPoint("TOPLEFT", statusFrame, "TOPLEFT", 10, -10)
 statusLabel:SetText("Mode Status:")
 statusLabel:SetTextColor(0.8, 0.8, 0.8)
 
-local statusVal = statusFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightBold")
+local statusVal = statusFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 statusVal:SetPoint("LEFT", statusLabel, "RIGHT", 5, 0)
 statusVal:SetText("OFF")
 statusVal:SetTextColor(0.5, 0.5, 0.5)
@@ -89,7 +96,7 @@ targetLabel:SetPoint("TOPLEFT", stateLabel, "BOTTOMLEFT", 0, -8)
 targetLabel:SetText("Next Boss:")
 targetLabel:SetTextColor(0.8, 0.8, 0.8)
 
-local targetVal = statusFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightBold")
+local targetVal = statusFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 targetVal:SetPoint("LEFT", targetLabel, "RIGHT", 5, 0)
 targetVal:SetText("None")
 targetVal:SetTextColor(1, 1, 1)
@@ -110,6 +117,7 @@ stallVal:Hide()
 -- Helper to update status styling
 local function UpdateStatusUI(enabled, targetName, state, stallReason)
     if not enabled or enabled == "0" then
+        isDCOn = false
         statusVal:SetText("OFF")
         statusVal:SetTextColor(0.5, 0.5, 0.5)
         stateVal:SetText("Inactive")
@@ -120,6 +128,7 @@ local function UpdateStatusUI(enabled, targetName, state, stallReason)
         stallVal:Hide()
         statusFrame:SetHeight(75)
     else
+        isDCOn = true
         statusVal:SetText("ON")
         statusVal:SetTextColor(0.1, 0.9, 0.1) -- Green
 
@@ -168,16 +177,23 @@ local function UpdateStatusUI(enabled, targetName, state, stallReason)
             statusFrame:SetHeight(75)
         end
     end
+    if UpdateFrameHeight then
+        UpdateFrameHeight()
+    end
 end
 
--- Command executor helper
-local function RunCommand(cmd)
-    local chatBox = ChatFrameEditBox
-    if chatBox then
-        chatBox:SetText(cmd)
-        ChatEdit_SendText(chatBox)
+-- Command sender via addon messages (silent, no audio cue)
+-- Uses PARTY distribution with LANG_ADDON prefix; the server-side hook
+-- intercepts and dispatches before any chat processing occurs.
+local function SendDcCommand(subCmd, param)
+    if (GetNumPartyMembers() and GetNumPartyMembers() > 0) or (GetNumRaidMembers() and GetNumRaidMembers() > 0) then
+        local payload = "CMD\t" .. subCmd
+        if param and param ~= "" then
+            payload = payload .. "\t" .. tostring(param)
+        end
+        SendAddonMessage("DC", payload, "PARTY")
     else
-        SendChatMessage(cmd, "PARTY")
+        DEFAULT_CHAT_FRAME:AddMessage("|cffff3333DungeonClear: You must be in a party to send bot commands.|r")
     end
 end
 
@@ -186,19 +202,19 @@ local onBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
 onBtn:SetSize(90, 24)
 onBtn:SetPoint("TOPLEFT", statusFrame, "BOTTOMLEFT", 0, -8)
 onBtn:SetText("DC On")
-onBtn:SetScript("OnClick", function() RunCommand(".dc on") end)
+onBtn:SetScript("OnClick", function() SendDcCommand("on") end)
 
 local offBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
 offBtn:SetSize(90, 24)
 offBtn:SetPoint("LEFT", onBtn, "RIGHT", 18, 0)
 offBtn:SetText("DC Off")
-offBtn:SetScript("OnClick", function() RunCommand(".dc off") end)
+offBtn:SetScript("OnClick", function() SendDcCommand("off") end)
 
 local skipBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
 skipBtn:SetSize(90, 24)
 skipBtn:SetPoint("LEFT", offBtn, "RIGHT", 18, 0)
 skipBtn:SetText("Skip Boss")
-skipBtn:SetScript("OnClick", function() RunCommand(".dc skip") end)
+skipBtn:SetScript("OnClick", function() SendDcCommand("skip") end)
 
 -- Boss List Label
 local listLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -219,109 +235,227 @@ scrollContainer:SetBackdrop({
 scrollContainer:SetBackdropColor(0.05, 0.05, 0.08, 0.50)
 scrollContainer:SetBackdropBorderColor(0.15, 0.17, 0.22, 0.8)
 
--- Scroll Frame
-local scrollFrame = CreateFrame("ScrollFrame", "DungeonClearScrollFrame", scrollContainer, "UIPanelScrollFrameTemplate")
-scrollFrame:SetPoint("TOPLEFT", scrollContainer, "TOPLEFT", 4, -4)
-scrollFrame:SetPoint("BOTTOMRIGHT", scrollContainer, "BOTTOMRIGHT", -26, 4)
+local BOSSES_PER_PAGE = 5
 
--- Scroll Child
-local scrollChild = CreateFrame("Frame", "DungeonClearScrollChild", scrollFrame)
-scrollChild:SetSize(276, 1)
-scrollFrame:SetScrollChild(scrollChild)
+-- Page navigation buttons at the bottom of scrollContainer
+local prevBtn = CreateFrame("Button", nil, scrollContainer, "UIPanelButtonTemplate")
+prevBtn:SetSize(32, 22)
+prevBtn:SetPoint("BOTTOMLEFT", scrollContainer, "BOTTOMLEFT", 10, 8)
+prevBtn:SetText("<")
 
--- Redraw Boss List rows
-local function RedrawBossList()
-    -- Hide old rows
-    for _, row in ipairs(bossRows) do
-        row:Hide()
-    end
+local nextBtn = CreateFrame("Button", nil, scrollContainer, "UIPanelButtonTemplate")
+nextBtn:SetSize(32, 22)
+nextBtn:SetPoint("BOTTOMRIGHT", scrollContainer, "BOTTOMRIGHT", -10, 8)
+nextBtn:SetText(">")
 
-    local rowHeight = 32
-    local totalHeight = 0
+local pageText = scrollContainer:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+pageText:SetPoint("CENTER", scrollContainer, "BOTTOM", 0, 19)
+pageText:SetText("Page 1 of 1")
+pageText:SetTextColor(0.8, 0.8, 0.8)
 
-    for i, boss in ipairs(bosses) do
-        local row = bossRows[i]
-        if not row then
-            row = CreateFrame("Frame", nil, scrollChild)
-            row:SetSize(276, rowHeight)
-            row:SetBackdrop({
-                bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
-                edgeFile = nil, tile = true, tileSize = 16
-            })
-            row:SetBackdropColor(0.1, 0.12, 0.18, 0.2)
+-- Pre-create rows (exactly BOSSES_PER_PAGE) inside scrollContainer
+for i = 1, BOSSES_PER_PAGE do
+    local row = CreateFrame("Frame", nil, scrollContainer)
+    row:SetSize(286, 32)
+    row:SetPoint("TOPLEFT", scrollContainer, "TOPLEFT", 10, -10 - (i - 1) * 33)
+    
+    -- Custom solid color texture instead of SetBackdrop to prevent client crashes
+    local bg = row:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints(row)
+    bg:SetTexture(0.08, 0.10, 0.15, 0.4)
+    row.bg = bg
 
-            -- Text label
-            row.text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-            row.text:SetPoint("LEFT", row, "LEFT", 8, 0)
-            row.text:SetWidth(150)
-            row.text:SetJustifyH("LEFT")
+    -- Text label
+    row.text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    row.text:SetPoint("LEFT", row, "LEFT", 8, 0)
+    row.text:SetWidth(150)
+    row.text:SetJustifyH("LEFT")
 
-            -- Status badge
-            row.status = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-            row.status:SetPoint("LEFT", row.text, "RIGHT", 5, 0)
+    -- Status badge
+    row.status = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    row.status:SetPoint("LEFT", row.text, "RIGHT", 5, 0)
 
-            -- "Go" action button
-            row.goBtn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
-            row.goBtn:SetSize(46, 20)
-            row.goBtn:SetPoint("RIGHT", row, "RIGHT", -6, 0)
-            row.goBtn:SetText("Go")
+    -- "Go" action button
+    row.goBtn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+    row.goBtn:SetSize(46, 20)
+    row.goBtn:SetPoint("RIGHT", row, "RIGHT", -6, 0)
+    row.goBtn:SetText("Go")
 
-            bossRows[i] = row
-        end
-
-        row:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, -((i - 1) * rowHeight))
-        row.text:SetText(boss.encounterIndex .. ". " .. boss.name)
-
-        -- Style status color
-        local statusLabelText = "Alive"
-        local statusColor = {0.1, 0.9, 0.1}
-        local showGo = true
-
-        if boss.status == "dead" then
-            statusLabelText = "Dead"
-            statusColor = {0.6, 0.6, 0.6}
-            showGo = false
-        elseif boss.status == "skipped" then
-            statusLabelText = "Skipped"
-            statusColor = {0.9, 0.7, 0.1}
-            showGo = true
-        elseif boss.status == "missing" then
-            statusLabelText = "Missing"
-            statusColor = {0.5, 0.5, 0.7}
-            showGo = true -- might not spawn yet, user can still path towards
-        end
-
-        row.status:SetText(statusLabelText)
-        row.status:SetTextColor(unpack(statusColor))
-
-        if showGo then
-            row.goBtn:Show()
-            row.goBtn:SetScript("OnClick", function()
-                RunCommand(".dc go " .. boss.entry)
-            end)
-        else
-            row.goBtn:Hide()
-        end
-
-        row:Show()
-        totalHeight = totalHeight + rowHeight
-    end
-
-    scrollChild:SetHeight(math.max(totalHeight, 1))
+    bossRows[i] = row
 end
 
--- Checkbox: Hide Spam
-local hideSpamCheckbox = CreateFrame("CheckButton", "DungeonClearHideSpamCheckbox", frame, "InterfaceOptionsCheckButtonTemplate")
-hideSpamCheckbox:SetPoint("TOPLEFT", scrollContainer, "BOTTOMLEFT", 0, -8)
-DungeonClearHideSpamCheckboxText:SetText("Hide Bot Chat Spam")
-hideSpamCheckbox:SetChecked(DungeonClearDB.hideChatSpam)
-hideSpamCheckbox:SetScript("OnClick", function(self)
-    DungeonClearDB.hideChatSpam = self:GetChecked()
+prevBtn:SetScript("OnClick", function()
+    if currentPage > 1 then
+        currentPage = currentPage - 1
+        RedrawBossList()
+    end
+end)
+
+nextBtn:SetScript("OnClick", function()
+    local numPages = math.max(1, math.ceil(#bosses / BOSSES_PER_PAGE))
+    if currentPage < numPages then
+        currentPage = currentPage + 1
+        RedrawBossList()
+    end
+end)
+
+-- Redraw Boss List rows (Paging Implementation)
+RedrawBossList = function()
+    local numPages = math.max(1, math.ceil(#bosses / BOSSES_PER_PAGE))
+    if currentPage > numPages then
+        currentPage = numPages
+    end
+    if currentPage < 1 then
+        currentPage = 1
+    end
+
+    pageText:SetText("Page " .. currentPage .. " of " .. numPages)
+
+    if currentPage == 1 then
+        prevBtn:Disable()
+    else
+        prevBtn:Enable()
+    end
+
+    if currentPage == numPages then
+        nextBtn:Disable()
+    else
+        nextBtn:Enable()
+    end
+
+    for i = 1, BOSSES_PER_PAGE do
+        local row = bossRows[i]
+        local bossIndex = (currentPage - 1) * BOSSES_PER_PAGE + i
+        local boss = bosses[bossIndex]
+
+        if boss then
+            row.text:SetText(boss.encounterIndex .. ". " .. boss.name)
+
+            -- Style status color
+            local statusLabelText = "Alive"
+            local statusColor = {0.1, 0.9, 0.1}
+            local showGo = true
+
+            if boss.status == "dead" then
+                statusLabelText = "Dead"
+                statusColor = {0.6, 0.6, 0.6}
+                showGo = false
+            elseif boss.status == "skipped" then
+                statusLabelText = "Skipped"
+                statusColor = {0.9, 0.7, 0.1}
+                showGo = true
+            elseif boss.status == "missing" then
+                statusLabelText = "Missing"
+                statusColor = {0.5, 0.5, 0.7}
+                showGo = true
+            end
+
+            row.status:SetText(statusLabelText)
+            row.status:SetTextColor(unpack(statusColor))
+
+            if showGo then
+                row.goBtn:Show()
+                row.goBtn:SetScript("OnClick", function()
+                    if not isDCOn then
+                        SendDcCommand("on")
+                    end
+                    SendDcCommand("go", boss.entry)
+                end)
+            else
+                row.goBtn:Hide()
+            end
+
+            row:Show()
+        else
+            row:Hide()
+        end
+    end
+end
+
+-- (Chat spam filter checkbox removed — addon messages are inherently silent)
+
+-- Toggle Buttons and Layout Adjustments
+local tinyBtn = CreateFrame("Button", "DungeonClearTinyButton", frame, "UIPanelButtonTemplate")
+tinyBtn:SetSize(40, 20)
+tinyBtn:SetPoint("RIGHT", closeBtn, "LEFT", 2, 0)
+tinyBtn:SetText("Tiny")
+
+local toggleBossesBtn = CreateFrame("Button", "DungeonClearToggleBossesButton", frame)
+toggleBossesBtn:SetSize(24, 24)
+toggleBossesBtn:SetPoint("LEFT", listLabel, "RIGHT", 6, 0)
+toggleBossesBtn:SetNormalFontObject("GameFontNormal")
+toggleBossesBtn:SetHighlightFontObject("GameFontHighlight")
+toggleBossesBtn:SetText("[-]")
+local btnText = toggleBossesBtn:GetFontString()
+if btnText then
+    btnText:SetTextColor(0.24, 0.60, 1.0)
+end
+
+UpdateFrameHeight = function()
+    local hasStall = stallVal:IsShown()
+    if DungeonClearDB.tinyMode then
+        frame:SetHeight(hasStall and 135 or 115)
+    else
+        if DungeonClearDB.bossesFolded then
+            frame:SetHeight(hasStall and 210 or 190)
+        else
+            frame:SetHeight(hasStall and 440 or 420)
+        end
+    end
+end
+
+UpdateLayout = function()
+    if DungeonClearDB.tinyMode then
+        tinyBtn:SetText("Full")
+        header:Hide()
+        onBtn:Hide()
+        offBtn:Hide()
+        skipBtn:Hide()
+        listLabel:Hide()
+        toggleBossesBtn:Hide()
+        scrollContainer:Hide()
+
+
+        statusFrame:ClearAllPoints()
+        statusFrame:SetPoint("TOP", frame, "TOP", 0, -28)
+    else
+        tinyBtn:SetText("Tiny")
+        header:Show()
+        onBtn:Show()
+        offBtn:Show()
+        skipBtn:Show()
+        listLabel:Show()
+        toggleBossesBtn:Show()
+
+        statusFrame:ClearAllPoints()
+        statusFrame:SetPoint("TOP", frame, "TOP", 0, -35)
+
+        if DungeonClearDB.bossesFolded then
+            toggleBossesBtn:SetText("[+]")
+            scrollContainer:Hide()
+
+        else
+            toggleBossesBtn:SetText("[-]")
+            scrollContainer:Show()
+
+        end
+    end
+    UpdateFrameHeight()
+end
+
+tinyBtn:SetScript("OnClick", function()
+    DungeonClearDB.tinyMode = not DungeonClearDB.tinyMode
+    UpdateLayout()
+end)
+
+toggleBossesBtn:SetScript("OnClick", function()
+    DungeonClearDB.bossesFolded = not DungeonClearDB.bossesFolded
+    UpdateLayout()
 end)
 
 -- Layout saving on drag stop
 frame:SetScript("OnDragStop", function(self)
-    self:StopMovingOrSavesLayout()
+    self:StopMovingOrSizing()
     local point, _, relativePoint, xOfs, yOfs = self:GetPoint()
     DungeonClearDB.point = point
     DungeonClearDB.relativePoint = relativePoint
@@ -335,6 +469,9 @@ eventFrame:RegisterEvent("ADDON_LOADED")
 eventFrame:RegisterEvent("CHAT_MSG_ADDON")
 eventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
+eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 
 -- Polling Status Helper
 local function StartPolling()
@@ -347,22 +484,29 @@ end
 -- Custom timer implementation using frame OnUpdate since WotLK standard C_Timer is limited or backported
 local elapsed = 0
 local function OnUpdateHandler(self, elap)
-    if not frame:IsVisible() then return end
+    if not frame:IsVisible() or not isDCOn then return end
     elapsed = elapsed + elap
-    if elapsed >= 1.5 then
+    if elapsed >= 2.0 then
         elapsed = 0
-        RunCommand(".dc status")
+        SendDcCommand("status", "addon")
     end
 end
 frame:SetScript("OnUpdate", OnUpdateHandler)
 
 -- Addon Messages parsing
-local function OnAddonMessage(prefix, message, sender)
-    if prefix ~= Prefix then return end
+local function OnAddonMessage(prefix, message, channel, sender)
+    if prefix ~= "DC" then return end
     
     local parts = {}
-    for part in string.gmatch(message, "([^\t]+)") do
-        table.insert(parts, part)
+    local start = 1
+    while true do
+        local pos = string.find(message, "\t", start)
+        if not pos then
+            table.insert(parts, string.sub(message, start))
+            break
+        end
+        table.insert(parts, string.sub(message, start, pos - 1))
+        start = pos + 1
     end
 
     if parts[1] == "STATUS" then
@@ -379,6 +523,7 @@ local function OnAddonMessage(prefix, message, sender)
         UpdateStatusUI(enabled, nextBossName, state, stallReason)
     elseif parts[1] == "BOSS_START" then
         bosses = {}
+        currentPage = 1
     elseif parts[1] == "BOSS" then
         local entry = tonumber(parts[2])
         local index = tonumber(parts[3])
@@ -401,6 +546,14 @@ local function OnAddonMessage(prefix, message, sender)
             return a.encounterIndex < b.encounterIndex
         end)
         RedrawBossList()
+    elseif parts[1] == "CHAT" then
+        -- Bot announcements routed through addon channel (silent)
+        local chatMsg = parts[2] or ""
+        DEFAULT_CHAT_FRAME:AddMessage("|cff3da6ff[DC] " .. chatMsg .. "|r")
+    elseif parts[1] == "ERROR" then
+        -- Error responses from the server hook
+        local errorMsg = parts[2] or ""
+        DEFAULT_CHAT_FRAME:AddMessage("|cffff3333[DC] " .. errorMsg .. "|r")
     end
 end
 
@@ -409,24 +562,34 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
     if event == "ADDON_LOADED" then
         local name = ...
         if name == AddonName then
+            -- Initialize DB defaults if needed
+            if DungeonClearDB.tinyMode == nil then DungeonClearDB.tinyMode = false end
+            if DungeonClearDB.bossesFolded == nil then DungeonClearDB.bossesFolded = false end
+            DungeonClearDB.hideChatSpam = nil -- Clean up legacy saved variable
+
             -- Restore layout
             frame:ClearAllPoints()
             frame:SetPoint(DungeonClearDB.point or "CENTER", UIParent, DungeonClearDB.relativePoint or "CENTER", DungeonClearDB.xOfs or 0, DungeonClearDB.yOfs or 0)
-            hideSpamCheckbox:SetChecked(DungeonClearDB.hideChatSpam)
             
+            if UpdateLayout then
+                UpdateLayout()
+            end
+
             if DungeonClearDB.visible then
                 frame:Show()
             else
                 frame:Hide()
             end
             
-            -- WotLK addon message prefix registration
-            RegisterAddonMessagePrefix(Prefix)
+            -- WotLK addon message prefix registration (only needed/exists in 4.1+)
+            if RegisterAddonMessagePrefix then
+                RegisterAddonMessagePrefix(Prefix)
+            end
         end
     elseif event == "CHAT_MSG_ADDON" then
         local prefix, message, channel, sender = ...
-        OnAddonMessage(prefix, message, sender)
-    elseif event == "ZONE_CHANGED_NEW_AREA" or event == "PLAYER_ENTERING_WORLD" then
+        OnAddonMessage(prefix, message, channel, sender)
+    elseif event == "ZONE_CHANGED_NEW_AREA" or event == "PLAYER_ENTERING_WORLD" or event == "GROUP_ROSTER_UPDATE" then
         local inInstance, instanceType = IsInInstance()
         if inInstance and instanceType == "party" then
             -- Auto-query bosses list when entering dungeon
@@ -436,10 +599,14 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
             delayFrame:SetScript("OnUpdate", function(sf, elap)
                 delayElapsed = delayElapsed + elap
                 if delayElapsed >= 3.0 then
-                    RunCommand(".dc bosses")
+                    SendDcCommand("bosses", "addon")
                     sf:SetScript("OnUpdate", nil)
                 end
             end)
+        end
+    elseif event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then
+        if frame:IsVisible() and isDCOn then
+            SendDcCommand("status", "addon")
         end
     end
 end)
@@ -447,8 +614,8 @@ end)
 -- Window show/hide triggers status update
 frame:SetScript("OnShow", function()
     DungeonClearDB.visible = true
-    RunCommand(".dc status")
-    RunCommand(".dc bosses")
+    SendDcCommand("status", "addon")
+    SendDcCommand("bosses", "addon")
 end)
 
 frame:SetScript("OnHide", function()
@@ -465,43 +632,13 @@ SlashCmdList["DUNGEONCLEAR"] = function(msg)
             frame:Show()
         end
     else
-        RunCommand(".dc " .. msg)
-    end
-end
-
--- Chat Message Spam Filter
-local filterPatterns = {
-    "^Dungeon clear: %a+%. Next boss:",
-    "^Dungeon clear enabled%. Heading to",
-    "^Dungeon clear disabled%.",
-    "^Targeting boss: .-%s*%. Navigating%.%.%.",
-    "^Skipped .-%s*%. Heading to",
-    "^Skipped .-%s*%. No bosses left",
-    "^%d+%.%s.-%s@%s%(%-?%d+,%s*%-?%d+,%s*%-?%d+%)%s%[.-%]$",
-    "^Can't reach .-%s*:%s*not spawned on this map",
-    "^Can't path to .-%s*:",
-    "^Stuck near .-%s*:",
-    "^A door blocks the path to",
-    " died %- dungeon clear disabled",
-    "All bosses cleared!"
-}
-
-local function ChatSpamFilter(self, event, msg, sender, ...)
-    if not DungeonClearDB.hideChatSpam then return false end
-    
-    -- Only filter messages that match our patterns
-    for _, pattern in ipairs(filterPatterns) do
-        if string.find(msg, pattern) then
-            return true -- Block message
+        -- Parse "/dc <sub> [param]" and send via addon message
+        local subCmd, param = msg:match("^(%S+)%s*(.*)$")
+        if subCmd then
+            SendDcCommand(subCmd, param)
         end
     end
-    return false
 end
-
-ChatFrame_AddMessageEventFilter("CHAT_MSG_PARTY", ChatSpamFilter)
-ChatFrame_AddMessageEventFilter("CHAT_MSG_PARTY_LEADER", ChatSpamFilter)
-ChatFrame_AddMessageEventFilter("CHAT_MSG_WHISPER", ChatSpamFilter)
-ChatFrame_AddMessageEventFilter("CHAT_MSG_WHISPER_INFORM", ChatSpamFilter)
 
 -- Print loaded notice
 DEFAULT_CHAT_FRAME:AddMessage("|cff3da6ffDungeonClear Addon loaded.|r Type /dc to toggle window.")
