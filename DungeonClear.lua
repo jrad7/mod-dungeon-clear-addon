@@ -30,6 +30,9 @@ frame:SetMovable(true)
 frame:EnableMouse(true)
 frame:RegisterForDrag("LeftButton")
 frame:SetClampedToScreen(true)
+-- Sit above most default UI so the readout stays usable
+frame:SetFrameStrata("DIALOG")
+frame:SetToplevel(true)
 frame:SetScript("OnDragStart", function(self)
     self:StartMoving()
 end)
@@ -114,6 +117,42 @@ stallVal:SetWidth(210)
 stallVal:SetJustifyH("LEFT")
 stallVal:Hide()
 
+-- Tiny (single-line) display: on/off circle + status + targeted boss
+local tinyIndicator = frame:CreateTexture(nil, "OVERLAY")
+tinyIndicator:SetSize(16, 16)
+tinyIndicator:SetPoint("LEFT", frame, "LEFT", 10, 0)
+tinyIndicator:SetTexture("Interface\\FriendsFrame\\StatusIcon-Offline")
+tinyIndicator:Hide()
+
+local tinyText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+tinyText:SetPoint("LEFT", tinyIndicator, "RIGHT", 6, 0)
+tinyText:SetText("Off")
+tinyText:Hide()
+
+-- Compact state -> (label, color) for the tiny line
+local function FormatStateTiny(state)
+    if state == "moving" then return "Advancing", {0.2, 0.7, 1}
+    elseif state == "resting" then return "Resting", {0.9, 0.8, 0.2}
+    elseif state == "looting" then return "Looting", {0.9, 0.6, 0.1}
+    elseif state == "door_blocked" then return "Door Blocked", {0.9, 0.2, 0.2}
+    elseif state == "stalled" then return "Blocked", {0.9, 0.2, 0.2}
+    elseif state == "fighting_trash" then return "Clearing Trash", {0.8, 0.3, 0.9}
+    elseif state == "fighting_boss" then return "Boss Fight", {1, 0.2, 0.2}
+    elseif state == "idle" then return "Idle", {0.6, 0.6, 0.6}
+    end
+    return "Active", {0.8, 0.8, 0.8}
+end
+
+local function RgbToHex(c)
+    return string.format("%02x%02x%02x", math.floor(c[1] * 255 + 0.5), math.floor(c[2] * 255 + 0.5), math.floor(c[3] * 255 + 0.5))
+end
+
+-- Size the frame to hug the single-line content in tiny mode
+local function UpdateTinyWidth()
+    local w = 10 + 16 + 6 + (tinyText:GetStringWidth() or 0) + 12
+    frame:SetWidth(math.max(140, w))
+end
+
 -- Helper to update status styling
 local function UpdateStatusUI(enabled, targetName, state, stallReason)
     if not enabled or enabled == "0" then
@@ -177,6 +216,25 @@ local function UpdateStatusUI(enabled, targetName, state, stallReason)
             statusFrame:SetHeight(75)
         end
     end
+
+    -- Update the tiny single-line display: circle + status + boss
+    if not enabled or enabled == "0" then
+        tinyIndicator:SetTexture("Interface\\FriendsFrame\\StatusIcon-Offline")
+        tinyText:SetText("|cff999999Off|r")
+    else
+        tinyIndicator:SetTexture("Interface\\FriendsFrame\\StatusIcon-Online")
+        local tLabel, tColor = FormatStateTiny(state)
+        local line = "|cff" .. RgbToHex(tColor) .. tLabel .. "|r"
+        if targetName and targetName ~= "None" and targetName ~= "" then
+            -- grey vertical divider between status and boss name
+            line = line .. "  |cff808080||" .. "|r  |cffffd100" .. targetName .. "|r"
+        end
+        tinyText:SetText(line)
+    end
+    if DungeonClearDB.tinyMode then
+        UpdateTinyWidth()
+    end
+
     if UpdateFrameHeight then
         UpdateFrameHeight()
     end
@@ -394,8 +452,10 @@ end
 UpdateFrameHeight = function()
     local hasStall = stallVal:IsShown()
     if DungeonClearDB.tinyMode then
-        frame:SetHeight(hasStall and 135 or 115)
+        frame:SetHeight(28)
+        UpdateTinyWidth()
     else
+        frame:SetWidth(330)
         if DungeonClearDB.bossesFolded then
             frame:SetHeight(hasStall and 210 or 190)
         else
@@ -406,26 +466,34 @@ end
 
 UpdateLayout = function()
     if DungeonClearDB.tinyMode then
-        tinyBtn:SetText("Full")
+        -- Single-line readout only: no header, no close/tiny buttons, no panels
         header:Hide()
+        closeBtn:Hide()
+        tinyBtn:Hide()
         onBtn:Hide()
         offBtn:Hide()
         skipBtn:Hide()
         listLabel:Hide()
         toggleBossesBtn:Hide()
         scrollContainer:Hide()
+        statusFrame:Hide()
 
-
-        statusFrame:ClearAllPoints()
-        statusFrame:SetPoint("TOP", frame, "TOP", 0, -28)
+        tinyIndicator:Show()
+        tinyText:Show()
     else
-        tinyBtn:SetText("Tiny")
+        tinyIndicator:Hide()
+        tinyText:Hide()
+
         header:Show()
+        closeBtn:Show()
+        tinyBtn:Show()
+        tinyBtn:SetText("Tiny")
         onBtn:Show()
         offBtn:Show()
         skipBtn:Show()
         listLabel:Show()
         toggleBossesBtn:Show()
+        statusFrame:Show()
 
         statusFrame:ClearAllPoints()
         statusFrame:SetPoint("TOP", frame, "TOP", 0, -35)
@@ -629,6 +697,9 @@ SlashCmdList["DUNGEONCLEAR"] = function(msg)
         if frame:IsVisible() then
             frame:Hide()
         else
+            -- Always reopen in full (non-tiny) mode
+            DungeonClearDB.tinyMode = false
+            UpdateLayout()
             frame:Show()
         end
     else
