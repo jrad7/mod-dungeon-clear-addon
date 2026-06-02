@@ -20,7 +20,9 @@ local pollTimer = nil
 local currentPage = 1
 local RedrawBossList
 local UpdateFrameHeight, UpdateLayout
+local pauseBtn
 local isDCOn = false
+local isPaused = false
 
 
 -- UI Frame Creation
@@ -129,9 +131,14 @@ tinyText:SetPoint("LEFT", tinyIndicator, "RIGHT", 6, 0)
 tinyText:SetText("Off")
 tinyText:Hide()
 
+-- Click target over the tiny circle; created after SendDcCommand is defined so
+-- its OnClick can capture it. Forward-declared here for UpdateLayout/UpdateStatusUI.
+local tinyToggle
+
 -- Compact state -> (label, color) for the tiny line
 local function FormatStateTiny(state)
-    if state == "moving" then return "Advancing", {0.2, 0.7, 1}
+    if state == "paused" then return "Paused", {0.9, 0.8, 0.2}
+    elseif state == "moving" then return "Advancing", {0.2, 0.7, 1}
     elseif state == "resting" then return "Resting", {0.9, 0.8, 0.2}
     elseif state == "looting" then return "Looting", {0.9, 0.6, 0.1}
     elseif state == "door_blocked" then return "Door Blocked", {0.9, 0.2, 0.2}
@@ -155,8 +162,10 @@ end
 
 -- Helper to update status styling
 local function UpdateStatusUI(enabled, targetName, state, stallReason)
+    isPaused = (state == "paused")
     if not enabled or enabled == "0" then
         isDCOn = false
+        isPaused = false
         statusVal:SetText("OFF")
         statusVal:SetTextColor(0.5, 0.5, 0.5)
         stateVal:SetText("Inactive")
@@ -168,13 +177,21 @@ local function UpdateStatusUI(enabled, targetName, state, stallReason)
         statusFrame:SetHeight(75)
     else
         isDCOn = true
-        statusVal:SetText("ON")
-        statusVal:SetTextColor(0.1, 0.9, 0.1) -- Green
+        if isPaused then
+            statusVal:SetText("PAUSED")
+            statusVal:SetTextColor(0.9, 0.8, 0.2) -- Yellow
+        else
+            statusVal:SetText("ON")
+            statusVal:SetTextColor(0.1, 0.9, 0.1) -- Green
+        end
 
         -- Format state human readable
         local stateText = state or "Idle"
         local stateColor = {0.8, 0.8, 0.8}
-        if state == "moving" then
+        if state == "paused" then
+            stateText = "Paused (holding position)"
+            stateColor = {0.9, 0.8, 0.2} -- Yellow
+        elseif state == "moving" then
             stateText = "Advancing"
             stateColor = {0.2, 0.7, 1} -- Light blue
         elseif state == "resting" then
@@ -222,7 +239,12 @@ local function UpdateStatusUI(enabled, targetName, state, stallReason)
         tinyIndicator:SetTexture("Interface\\FriendsFrame\\StatusIcon-Offline")
         tinyText:SetText("|cff999999Off|r")
     else
-        tinyIndicator:SetTexture("Interface\\FriendsFrame\\StatusIcon-Online")
+        if isPaused then
+            -- Yellow "away" dot signals a held/paused clear.
+            tinyIndicator:SetTexture("Interface\\FriendsFrame\\StatusIcon-Away")
+        else
+            tinyIndicator:SetTexture("Interface\\FriendsFrame\\StatusIcon-Online")
+        end
         local tLabel, tColor = FormatStateTiny(state)
         local line = "|cff" .. RgbToHex(tColor) .. tLabel .. "|r"
         if targetName and targetName ~= "None" and targetName ~= "" then
@@ -231,6 +253,17 @@ local function UpdateStatusUI(enabled, targetName, state, stallReason)
         end
         tinyText:SetText(line)
     end
+    -- Pause/Resume button: label reflects current state; disabled when DC is off.
+    if pauseBtn then
+        if not isDCOn then
+            pauseBtn:SetText("Pause")
+            pauseBtn:Disable()
+        else
+            pauseBtn:SetText(isPaused and "Resume" or "Pause")
+            pauseBtn:Enable()
+        end
+    end
+
     if DungeonClearDB.tinyMode then
         UpdateTinyWidth()
     end
@@ -256,23 +289,47 @@ local function SendDcCommand(subCmd, param)
 end
 
 -- Action Buttons Panel
+-- Four-up action row: On / Off / Skip / Pause-Resume (narrowed to fit one row).
 local onBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-onBtn:SetSize(90, 24)
+onBtn:SetSize(68, 24)
 onBtn:SetPoint("TOPLEFT", statusFrame, "BOTTOMLEFT", 0, -8)
-onBtn:SetText("DC On")
+onBtn:SetText("On")
 onBtn:SetScript("OnClick", function() SendDcCommand("on") end)
 
 local offBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-offBtn:SetSize(90, 24)
-offBtn:SetPoint("LEFT", onBtn, "RIGHT", 18, 0)
-offBtn:SetText("DC Off")
+offBtn:SetSize(68, 24)
+offBtn:SetPoint("LEFT", onBtn, "RIGHT", 11, 0)
+offBtn:SetText("Off")
 offBtn:SetScript("OnClick", function() SendDcCommand("off") end)
 
 local skipBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-skipBtn:SetSize(90, 24)
-skipBtn:SetPoint("LEFT", offBtn, "RIGHT", 18, 0)
-skipBtn:SetText("Skip Boss")
+skipBtn:SetSize(68, 24)
+skipBtn:SetPoint("LEFT", offBtn, "RIGHT", 11, 0)
+skipBtn:SetText("Skip")
 skipBtn:SetScript("OnClick", function() SendDcCommand("skip") end)
+
+-- Pause/Resume toggle. Label + enabled state are driven by UpdateStatusUI;
+-- the server-side action toggles pause/resume off the same "pause" subcommand.
+pauseBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+pauseBtn:SetSize(68, 24)
+pauseBtn:SetPoint("LEFT", skipBtn, "RIGHT", 11, 0)
+pauseBtn:SetText("Pause")
+pauseBtn:SetScript("OnClick", function() SendDcCommand("pause") end)
+
+-- Invisible click target over the tiny circle. Off -> start DC; running ->
+-- toggle pause/resume. Only shown in tiny mode (see UpdateLayout). Sits over
+-- just the 16x16 dot so dragging the rest of the bar still works.
+tinyToggle = CreateFrame("Button", "DungeonClearTinyToggle", frame)
+tinyToggle:SetAllPoints(tinyIndicator)
+tinyToggle:EnableMouse(true)
+tinyToggle:SetScript("OnClick", function()
+    if not isDCOn then
+        SendDcCommand("on")
+    else
+        SendDcCommand("pause")
+    end
+end)
+tinyToggle:Hide()
 
 -- Boss List Label
 local listLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -473,6 +530,7 @@ UpdateLayout = function()
         onBtn:Hide()
         offBtn:Hide()
         skipBtn:Hide()
+        if pauseBtn then pauseBtn:Hide() end
         listLabel:Hide()
         toggleBossesBtn:Hide()
         scrollContainer:Hide()
@@ -480,9 +538,11 @@ UpdateLayout = function()
 
         tinyIndicator:Show()
         tinyText:Show()
+        if tinyToggle then tinyToggle:Show() end
     else
         tinyIndicator:Hide()
         tinyText:Hide()
+        if tinyToggle then tinyToggle:Hide() end
 
         header:Show()
         closeBtn:Show()
@@ -491,6 +551,7 @@ UpdateLayout = function()
         onBtn:Show()
         offBtn:Show()
         skipBtn:Show()
+        if pauseBtn then pauseBtn:Show() end
         listLabel:Show()
         toggleBossesBtn:Show()
         statusFrame:Show()
