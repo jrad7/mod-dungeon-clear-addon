@@ -662,9 +662,19 @@ local function OnAddonMessage(prefix, message, channel, sender)
         local chatMsg = parts[2] or ""
         DEFAULT_CHAT_FRAME:AddMessage("|cff3da6ff[DC] " .. chatMsg .. "|r")
     elseif parts[1] == "ERROR" then
-        -- Error responses from the server hook
+        -- Error responses from the server hook. The only error our status/bosses
+        -- polling can provoke is "no tank bot found" — which means the tank bot
+        -- left the group or logged out. If we still think DC is active (e.g.
+        -- stuck showing Paused), reset to OFF: that both reverts the readout and
+        -- stops the 2s poll loop (OnUpdateHandler gates on isDCOn), so we don't
+        -- spam the no-tank error every couple seconds.
         local errorMsg = parts[2] or ""
-        DEFAULT_CHAT_FRAME:AddMessage("|cffff3333[DC] " .. errorMsg .. "|r")
+        if isDCOn then
+            UpdateStatusUI("0", nil, "off", nil)
+            DEFAULT_CHAT_FRAME:AddMessage("|cffff3333[DC] Tank bot is no longer in the group \xe2\x80\x94 dungeon clear turned off.|r")
+        else
+            DEFAULT_CHAT_FRAME:AddMessage("|cffff3333[DC] " .. errorMsg .. "|r")
+        end
     end
 end
 
