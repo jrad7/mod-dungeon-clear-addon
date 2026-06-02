@@ -17,7 +17,6 @@ DungeonClearDB = DungeonClearDB or {
 local bosses = {}
 local bossRows = {}
 local pollTimer = nil
-local currentPage = 1
 local RedrawBossList
 local UpdateFrameHeight, UpdateLayout
 local pauseBtn
@@ -37,6 +36,14 @@ frame:SetFrameStrata("DIALOG")
 frame:SetToplevel(true)
 frame:SetScript("OnDragStart", function(self)
     self:StartMoving()
+end)
+-- Right-click anywhere on the tiny bar restores the full window. Guarded by
+-- tinyMode so right-clicks in full mode do nothing, and left-drag still moves.
+frame:SetScript("OnMouseUp", function(self, button)
+    if button == "RightButton" and DungeonClearDB.tinyMode then
+        DungeonClearDB.tinyMode = false
+        UpdateLayout()
+    end
 end)
 
 -- Sleek Dark Backdrop
@@ -322,7 +329,15 @@ pauseBtn:SetScript("OnClick", function() SendDcCommand("pause") end)
 tinyToggle = CreateFrame("Button", "DungeonClearTinyToggle", frame)
 tinyToggle:SetAllPoints(tinyIndicator)
 tinyToggle:EnableMouse(true)
-tinyToggle:SetScript("OnClick", function()
+tinyToggle:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+tinyToggle:SetScript("OnClick", function(self, button)
+    -- Right-click over the circle expands back to the full window (matches the
+    -- frame-level OnMouseUp handler that covers the rest of the tiny bar).
+    if button == "RightButton" then
+        DungeonClearDB.tinyMode = false
+        UpdateLayout()
+        return
+    end
     if not isDCOn then
         SendDcCommand("on")
     else
@@ -350,30 +365,30 @@ scrollContainer:SetBackdrop({
 scrollContainer:SetBackdropColor(0.05, 0.05, 0.08, 0.50)
 scrollContainer:SetBackdropBorderColor(0.15, 0.17, 0.22, 0.8)
 
-local BOSSES_PER_PAGE = 5
+local ROW_HEIGHT = 30
+local VISIBLE_ROWS = 6
 
--- Page navigation buttons at the bottom of scrollContainer
-local prevBtn = CreateFrame("Button", nil, scrollContainer, "UIPanelButtonTemplate")
-prevBtn:SetSize(32, 22)
-prevBtn:SetPoint("BOTTOMLEFT", scrollContainer, "BOTTOMLEFT", 10, 8)
-prevBtn:SetText("<")
+-- Scrollable boss list. FauxScrollFrame is the idiomatic WotLK pattern: a small
+-- fixed pool of visible rows is reused while an offset selects which slice of
+-- `bosses` they display, so the list scrolls without growing the window.
+local scrollFrame = CreateFrame("ScrollFrame", "DungeonClearScrollFrame", scrollContainer, "FauxScrollFrameTemplate")
+scrollFrame:SetPoint("TOPLEFT", scrollContainer, "TOPLEFT", 8, -8)
+scrollFrame:SetPoint("BOTTOMRIGHT", scrollContainer, "BOTTOMRIGHT", -28, 8) -- leave room for the scrollbar
+scrollFrame:EnableMouseWheel(true)
+scrollFrame:SetScript("OnVerticalScroll", function(self, offset)
+    FauxScrollFrame_OnVerticalScroll(self, offset, ROW_HEIGHT, RedrawBossList)
+end)
+scrollFrame:SetScript("OnMouseWheel", function(self, delta)
+    local bar = DungeonClearScrollFrameScrollBar
+    bar:SetValue(bar:GetValue() - delta * ROW_HEIGHT)
+end)
 
-local nextBtn = CreateFrame("Button", nil, scrollContainer, "UIPanelButtonTemplate")
-nextBtn:SetSize(32, 22)
-nextBtn:SetPoint("BOTTOMRIGHT", scrollContainer, "BOTTOMRIGHT", -10, 8)
-nextBtn:SetText(">")
-
-local pageText = scrollContainer:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-pageText:SetPoint("CENTER", scrollContainer, "BOTTOM", 0, 19)
-pageText:SetText("Page 1 of 1")
-pageText:SetTextColor(0.8, 0.8, 0.8)
-
--- Pre-create rows (exactly BOSSES_PER_PAGE) inside scrollContainer
-for i = 1, BOSSES_PER_PAGE do
+-- Pre-create the visible row pool inside scrollContainer, anchored to scrollFrame
+for i = 1, VISIBLE_ROWS do
     local row = CreateFrame("Frame", nil, scrollContainer)
-    row:SetSize(286, 32)
-    row:SetPoint("TOPLEFT", scrollContainer, "TOPLEFT", 10, -10 - (i - 1) * 33)
-    
+    row:SetSize(262, ROW_HEIGHT - 2)
+    row:SetPoint("TOPLEFT", scrollFrame, "TOPLEFT", 0, -(i - 1) * ROW_HEIGHT)
+
     -- Custom solid color texture instead of SetBackdrop to prevent client crashes
     local bg = row:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints(row)
@@ -399,52 +414,20 @@ for i = 1, BOSSES_PER_PAGE do
     bossRows[i] = row
 end
 
-prevBtn:SetScript("OnClick", function()
-    if currentPage > 1 then
-        currentPage = currentPage - 1
-        RedrawBossList()
-    end
-end)
-
-nextBtn:SetScript("OnClick", function()
-    local numPages = math.max(1, math.ceil(#bosses / BOSSES_PER_PAGE))
-    if currentPage < numPages then
-        currentPage = currentPage + 1
-        RedrawBossList()
-    end
-end)
-
--- Redraw Boss List rows (Paging Implementation)
+-- Redraw Boss List rows (FauxScrollFrame implementation)
 RedrawBossList = function()
-    local numPages = math.max(1, math.ceil(#bosses / BOSSES_PER_PAGE))
-    if currentPage > numPages then
-        currentPage = numPages
-    end
-    if currentPage < 1 then
-        currentPage = 1
-    end
+    FauxScrollFrame_Update(scrollFrame, #bosses, VISIBLE_ROWS, ROW_HEIGHT)
+    local offset = FauxScrollFrame_GetOffset(scrollFrame)
 
-    pageText:SetText("Page " .. currentPage .. " of " .. numPages)
-
-    if currentPage == 1 then
-        prevBtn:Disable()
-    else
-        prevBtn:Enable()
-    end
-
-    if currentPage == numPages then
-        nextBtn:Disable()
-    else
-        nextBtn:Enable()
-    end
-
-    for i = 1, BOSSES_PER_PAGE do
+    for i = 1, VISIBLE_ROWS do
         local row = bossRows[i]
-        local bossIndex = (currentPage - 1) * BOSSES_PER_PAGE + i
-        local boss = bosses[bossIndex]
+        -- 1-based ordinal position in the sorted list: clean sequential numbering
+        -- even when a filtered wing yields non-contiguous encounter indices.
+        local dataIndex = i + offset
+        local boss = bosses[dataIndex]
 
         if boss then
-            row.text:SetText(boss.encounterIndex .. ". " .. boss.name)
+            row.text:SetText(dataIndex .. ". " .. boss.name)
 
             -- Style status color
             local statusLabelText = "Alive"
@@ -652,7 +635,6 @@ local function OnAddonMessage(prefix, message, channel, sender)
         UpdateStatusUI(enabled, nextBossName, state, stallReason)
     elseif parts[1] == "BOSS_START" then
         bosses = {}
-        currentPage = 1
     elseif parts[1] == "BOSS" then
         local entry = tonumber(parts[2])
         local index = tonumber(parts[3])
