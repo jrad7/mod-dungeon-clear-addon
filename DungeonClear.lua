@@ -13,8 +13,14 @@ DungeonClearDB = DungeonClearDB or {
     yOfs = 0
 }
 
--- Boss list table
+-- Boss list table. `bosses` is what the UI renders; `pendingBosses` stages an
+-- in-flight server response and is only committed to `bosses` on BOSS_END, and
+-- only when it's non-empty. This keeps a good list "sticky": a transient empty
+-- reply (bot still on a loading screen, a second tank bot not yet in the
+-- instance, or two tanks' sequences interleaving) can no longer blank a list
+-- that already loaded.
 local bosses = {}
+local pendingBosses = {}
 local bossRows = {}
 local pollTimer = nil
 local RedrawBossList
@@ -683,7 +689,10 @@ local function OnAddonMessage(prefix, message, channel, sender)
 
         UpdateStatusUI(enabled, nextBossName, state, stallReason)
     elseif parts[1] == "BOSS_START" then
-        bosses = {}
+        -- Stage into pendingBosses; the live list is untouched until BOSS_END
+        -- so a response that turns out empty (or never finalizes) can't blank
+        -- a list that's already showing.
+        pendingBosses = {}
     elseif parts[1] == "BOSS" then
         local entry = tonumber(parts[2])
         local index = tonumber(parts[3])
@@ -693,7 +702,7 @@ local function OnAddonMessage(prefix, message, channel, sender)
         local y = tonumber(parts[7])
         local z = tonumber(parts[8])
 
-        table.insert(bosses, {
+        table.insert(pendingBosses, {
             entry = entry,
             encounterIndex = index,
             name = name,
@@ -701,11 +710,22 @@ local function OnAddonMessage(prefix, message, channel, sender)
             x = x, y = y, z = z
         })
     elseif parts[1] == "BOSS_END" then
-        -- Sort bosses by encounter index
-        table.sort(bosses, function(a, b)
-            return a.encounterIndex < b.encounterIndex
-        end)
-        RedrawBossList()
+        if #pendingBosses > 0 then
+            -- A real list arrived: commit it, sorted by encounter index.
+            table.sort(pendingBosses, function(a, b)
+                return a.encounterIndex < b.encounterIndex
+            end)
+            bosses = pendingBosses
+            pendingBosses = {}
+            RedrawBossList()
+        else
+            -- Empty response. Never downgrade a good list to empty — that's the
+            -- transient-empty case the ensure-loop will retry past. Only redraw
+            -- (to show the "Loading" placeholder) if we have nothing yet.
+            if #bosses == 0 then
+                RedrawBossList()
+            end
+        end
     elseif parts[1] == "CHAT" then
         -- Bot announcements routed through addon channel (silent)
         local chatMsg = parts[2] or ""
