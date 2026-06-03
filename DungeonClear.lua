@@ -109,8 +109,18 @@ stateVal:SetPoint("LEFT", stateLabel, "RIGHT", 5, 0)
 stateVal:SetText("Inactive")
 stateVal:SetTextColor(0.6, 0.6, 0.6)
 
+-- Free-text detail sub-line under the state (who we're waiting on, what we're
+-- heading to, etc.). Wraps to a second line if needed; the reserved gap below
+-- keeps the Next Boss / Warning rows from shifting.
+local detailVal = statusFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+detailVal:SetPoint("TOPLEFT", stateLabel, "BOTTOMLEFT", 0, -2)
+detailVal:SetWidth(300)
+detailVal:SetJustifyH("LEFT")
+detailVal:SetTextColor(0.7, 0.7, 0.7)
+detailVal:SetText("")
+
 local targetLabel = statusFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-targetLabel:SetPoint("TOPLEFT", stateLabel, "BOTTOMLEFT", 0, -8)
+targetLabel:SetPoint("TOPLEFT", stateLabel, "BOTTOMLEFT", 0, -34)
 targetLabel:SetText("Next Boss:")
 targetLabel:SetTextColor(0.8, 0.8, 0.8)
 
@@ -152,6 +162,9 @@ local tinyToggle
 local function FormatStateTiny(state)
     if state == "paused" then return "Paused", {0.9, 0.8, 0.2}
     elseif state == "moving" then return "Advancing", {0.2, 0.7, 1}
+    elseif state == "pathing" then return "Plotting Route", {0.4, 0.7, 0.9}
+    elseif state == "pursuing" then return "Closing In", {0.3, 0.8, 1}
+    elseif state == "recovering" then return "Repathing", {0.9, 0.6, 0.2}
     elseif state == "resting" then return "Resting", {0.9, 0.8, 0.2}
     elseif state == "looting" then return "Looting", {0.9, 0.6, 0.1}
     elseif state == "door_blocked" then return "Door Blocked", {0.9, 0.2, 0.2}
@@ -174,7 +187,7 @@ local function UpdateTinyWidth()
 end
 
 -- Helper to update status styling
-local function UpdateStatusUI(enabled, targetName, state, stallReason)
+local function UpdateStatusUI(enabled, targetName, state, stallReason, detail)
     isPaused = (state == "paused")
     if not enabled or enabled == "0" then
         isDCOn = false
@@ -183,11 +196,12 @@ local function UpdateStatusUI(enabled, targetName, state, stallReason)
         statusVal:SetTextColor(0.5, 0.5, 0.5)
         stateVal:SetText("Inactive")
         stateVal:SetTextColor(0.6, 0.6, 0.6)
+        detailVal:SetText("")
         targetVal:SetText("None")
         targetVal:SetTextColor(0.6, 0.6, 0.6)
         stallLabel:Hide()
         stallVal:Hide()
-        statusFrame:SetHeight(75)
+        statusFrame:SetHeight(101)
     else
         isDCOn = true
         if isPaused then
@@ -207,6 +221,15 @@ local function UpdateStatusUI(enabled, targetName, state, stallReason)
         elseif state == "moving" then
             stateText = "Advancing"
             stateColor = {0.2, 0.7, 1} -- Light blue
+        elseif state == "pathing" then
+            stateText = "Plotting Route"
+            stateColor = {0.4, 0.7, 0.9} -- Blue
+        elseif state == "pursuing" then
+            stateText = "Closing on Boss"
+            stateColor = {0.3, 0.8, 1} -- Light blue
+        elseif state == "recovering" then
+            stateText = "Recovering / Repathing"
+            stateColor = {0.9, 0.6, 0.2} -- Amber
         elseif state == "resting" then
             stateText = "Party Recovering / Resting"
             stateColor = {0.9, 0.8, 0.2} -- Yellow
@@ -232,6 +255,8 @@ local function UpdateStatusUI(enabled, targetName, state, stallReason)
         stateVal:SetText(stateText)
         stateVal:SetTextColor(unpack(stateColor))
 
+        detailVal:SetText(detail or "")
+
         targetVal:SetText(targetName or "None")
         targetVal:SetTextColor(1, 0.82, 0) -- Gold
 
@@ -239,11 +264,11 @@ local function UpdateStatusUI(enabled, targetName, state, stallReason)
             stallLabel:Show()
             stallVal:Show()
             stallVal:SetText(stallReason)
-            statusFrame:SetHeight(95)
+            statusFrame:SetHeight(121)
         else
             stallLabel:Hide()
             stallVal:Hide()
-            statusFrame:SetHeight(75)
+            statusFrame:SetHeight(101)
         end
     end
 
@@ -521,9 +546,9 @@ UpdateFrameHeight = function()
     else
         frame:SetWidth(330)
         if DungeonClearDB.bossesFolded then
-            frame:SetHeight(hasStall and 210 or 190)
+            frame:SetHeight(hasStall and 236 or 216)
         else
-            frame:SetHeight(hasStall and 440 or 420)
+            frame:SetHeight(hasStall and 466 or 446)
         end
     end
 end
@@ -683,11 +708,13 @@ local function OnAddonMessage(prefix, message, channel, sender)
         local stallReason = parts[5]
         local skippedCount = parts[6]
         local state = parts[7]
+        local detail = parts[8]
 
         if nextBossName == "None" then nextBossName = nil end
         if stallReason == "" then stallReason = nil end
+        if detail == "" then detail = nil end
 
-        UpdateStatusUI(enabled, nextBossName, state, stallReason)
+        UpdateStatusUI(enabled, nextBossName, state, stallReason, detail)
     elseif parts[1] == "BOSS_START" then
         -- Stage into pendingBosses; the live list is untouched until BOSS_END
         -- so a response that turns out empty (or never finalizes) can't blank
