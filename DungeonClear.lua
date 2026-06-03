@@ -849,6 +849,65 @@ frame:SetScript("OnHide", function()
     DungeonClearDB.visible = false
 end)
 
+-- Interface -> AddOns options panel (informational front door)
+-- A simple, read-only page registered under Game Menu -> Interface -> AddOns:
+-- overview text, a command/control reference, and a button that opens the main
+-- window exactly like typing /dc. No settings live here; all controls stay in
+-- the floating window.
+local optionsPanel = CreateFrame("Frame", "DungeonClearOptionsPanel", UIParent)
+optionsPanel.name = "DungeonClear"
+
+local optTitle = optionsPanel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+optTitle:SetPoint("TOPLEFT", optionsPanel, "TOPLEFT", 16, -16)
+optTitle:SetText("Dungeon Clear")
+optTitle:SetTextColor(0.24, 0.60, 1.0) -- match the main window header
+
+local optSubtitle = optionsPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+optSubtitle:SetPoint("TOPLEFT", optTitle, "BOTTOMLEFT", 0, -4)
+optSubtitle:SetText("Autonomous dungeon-clearing companion for mod-dungeon-clear.")
+optSubtitle:SetTextColor(0.6, 0.6, 0.6)
+
+local optOverview = optionsPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+optOverview:SetPoint("TOPLEFT", optSubtitle, "BOTTOMLEFT", 0, -14)
+optOverview:SetWidth(560)
+optOverview:SetJustifyH("LEFT")
+optOverview:SetText(
+    "A mod-playerbots tank bot walks your party from boss to boss, clearing trash and " ..
+    "pathing the route on its own. This addon is the front-end for that mode: it gives you " ..
+    "one-click On / Off / Skip / Pause-Resume control, a live status readout (what the bot " ..
+    "is doing and which boss it's heading for), and a boss list with a per-boss \"Go\" button. " ..
+    "You must be in a party that contains a tank bot \xe2\x80\x94 the addon only relays commands.")
+
+local optCmdHeader = optionsPanel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+optCmdHeader:SetPoint("TOPLEFT", optOverview, "BOTTOMLEFT", 0, -18)
+optCmdHeader:SetText("Commands & Controls")
+optCmdHeader:SetTextColor(0.24, 0.60, 1.0)
+
+local optCmdList = optionsPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+optCmdList:SetPoint("TOPLEFT", optCmdHeader, "BOTTOMLEFT", 0, -8)
+optCmdList:SetWidth(560)
+optCmdList:SetJustifyH("LEFT")
+optCmdList:SetText(
+    "|cffffd100/dc|r  \xe2\x80\x94  Toggle the main window (always reopens in full mode).\n" ..
+    "|cffffd100On / Off|r  \xe2\x80\x94  Start or stop the autonomous clear.\n" ..
+    "|cffffd100Skip|r  \xe2\x80\x94  Skip the current boss / objective and move to the next.\n" ..
+    "|cffffd100Pause / Resume|r  \xe2\x80\x94  Hold the tank in place without ending the clear, then resume.\n" ..
+    "|cffffd100Go|r (per boss row)  \xe2\x80\x94  Send the tank straight to that boss (turns the clear on first).\n" ..
+    "|cffffd100Tiny|r  \xe2\x80\x94  Collapse the window to a single-line, movable readout.")
+
+local openBtn = CreateFrame("Button", nil, optionsPanel, "UIPanelButtonTemplate")
+openBtn:SetSize(160, 24)
+openBtn:SetPoint("TOPLEFT", optCmdList, "BOTTOMLEFT", 0, -20)
+openBtn:SetText("Open DungeonClear")
+openBtn:SetScript("OnClick", function()
+    -- Mirror the /dc (no-arg) open branch: always reopen in full (non-tiny) mode.
+    DungeonClearDB.tinyMode = false
+    UpdateLayout()
+    frame:Show()
+end)
+
+InterfaceOptions_AddCategory(optionsPanel)
+
 -- Slash Command Registration
 SLASH_DUNGEONCLEAR1 = "/dc"
 SlashCmdList["DUNGEONCLEAR"] = function(msg)
@@ -871,4 +930,4 @@ SlashCmdList["DUNGEONCLEAR"] = function(msg)
 end
 
 -- Print loaded notice
-DEFAULT_CHAT_FRAME:AddMessage("|cff3da6ffDungeonClear Addon loaded.|r Type /dc to toggle window.")
+DEFAULT_CHAT_FRAME:AddMessage("|cff3da6ffDungeonClear Addon loaded.|r Type /dc to toggle window, or see Interface > AddOns > DungeonClear.")
