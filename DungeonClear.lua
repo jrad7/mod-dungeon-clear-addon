@@ -634,22 +634,22 @@ local function OnUpdateHandler(self, elap)
         end
     end
 
-    -- Ensure-loop: as long as we have no boss list, keep asking for one
-    -- (every 2s) regardless of on/off state. This self-heals the case where
-    -- the initial zone-change query landed before the bot was in the instance
-    -- and got an empty (cached) reply. Gated on being in a 5-man so we don't
-    -- poll out in the open world.
-    if #bosses == 0 then
-        bossEnsureElapsed = bossEnsureElapsed + elap
-        if bossEnsureElapsed >= 2.0 then
-            bossEnsureElapsed = 0
-            local inInstance, instanceType = IsInInstance()
-            if inInstance and instanceType == "party" then
-                RequestBossList()
-            end
-        end
-    else
+    -- Keep the boss list fresh. A boss's alive/dead/missing state changes as
+    -- the party clears, but the server only sends the list on request, so a
+    -- single fetch goes stale the moment the first boss dies. Re-ask on a
+    -- steady cadence: quickly (every 2s) while the list is still empty so the
+    -- panel fills in fast on zone-in, then more gently (every 5s) once it's
+    -- populated just to refresh statuses. Gated on being in a 5-man so we
+    -- don't poll out in the open world. RedrawBossList preserves the scroll
+    -- offset, so these refreshes don't disturb the user's place in the list.
+    bossEnsureElapsed = bossEnsureElapsed + elap
+    local refreshInterval = (#bosses == 0) and 2.0 or 5.0
+    if bossEnsureElapsed >= refreshInterval then
         bossEnsureElapsed = 0
+        local inInstance, instanceType = IsInInstance()
+        if inInstance and instanceType == "party" then
+            RequestBossList()
+        end
     end
 end
 frame:SetScript("OnUpdate", OnUpdateHandler)
