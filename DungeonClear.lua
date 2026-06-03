@@ -772,7 +772,7 @@ local function OnAddonMessage(prefix, message, channel, sender)
         local errorMsg = parts[2] or ""
         if isDCOn then
             UpdateStatusUI("0", nil, "off", nil)
-            DEFAULT_CHAT_FRAME:AddMessage("|cffff3333[DC] Tank bot is no longer in the group \xe2\x80\x94 dungeon clear turned off.|r")
+            DEFAULT_CHAT_FRAME:AddMessage("|cffff3333[DC] Tank bot is no longer in the group \226\128\148 dungeon clear turned off.|r")
         else
             DEFAULT_CHAT_FRAME:AddMessage("|cffff3333[DC] " .. errorMsg .. "|r")
         end
@@ -876,7 +876,7 @@ optOverview:SetText(
     "pathing the route on its own. This addon is the front-end for that mode: it gives you " ..
     "one-click On / Off / Skip / Pause-Resume control, a live status readout (what the bot " ..
     "is doing and which boss it's heading for), and a boss list with a per-boss \"Go\" button. " ..
-    "You must be in a party that contains a tank bot \xe2\x80\x94 the addon only relays commands.")
+    "You must be in a party that contains a tank bot \226\128\148 the addon only relays commands.")
 
 local optCmdHeader = optionsPanel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
 optCmdHeader:SetPoint("TOPLEFT", optOverview, "BOTTOMLEFT", 0, -18)
@@ -888,12 +888,12 @@ optCmdList:SetPoint("TOPLEFT", optCmdHeader, "BOTTOMLEFT", 0, -8)
 optCmdList:SetWidth(560)
 optCmdList:SetJustifyH("LEFT")
 optCmdList:SetText(
-    "|cffffd100/dc|r  \xe2\x80\x94  Toggle the main window (always reopens in full mode).\n" ..
-    "|cffffd100On / Off|r  \xe2\x80\x94  Start or stop the autonomous clear.\n" ..
-    "|cffffd100Skip|r  \xe2\x80\x94  Skip the current boss / objective and move to the next.\n" ..
-    "|cffffd100Pause / Resume|r  \xe2\x80\x94  Hold the tank in place without ending the clear, then resume.\n" ..
-    "|cffffd100Go|r (per boss row)  \xe2\x80\x94  Send the tank straight to that boss (turns the clear on first).\n" ..
-    "|cffffd100Tiny|r  \xe2\x80\x94  Collapse the window to a single-line, movable readout.")
+    "|cffffd100/dc|r  \226\128\148  Toggle the main window (always reopens in full mode).\n" ..
+    "|cffffd100On / Off|r  \226\128\148  Start or stop the autonomous clear.\n" ..
+    "|cffffd100Skip|r  \226\128\148  Skip the current boss / objective and move to the next.\n" ..
+    "|cffffd100Pause / Resume|r  \226\128\148  Hold the tank in place without ending the clear, then resume.\n" ..
+    "|cffffd100Go|r (per boss row)  \226\128\148  Send the tank straight to that boss (turns the clear on first).\n" ..
+    "|cffffd100Tiny|r  \226\128\148  Collapse the window to a single-line, movable readout.")
 
 local openBtn = CreateFrame("Button", nil, optionsPanel, "UIPanelButtonTemplate")
 openBtn:SetSize(160, 24)
