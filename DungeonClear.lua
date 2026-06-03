@@ -416,6 +416,21 @@ end
 
 -- Redraw Boss List rows (FauxScrollFrame implementation)
 RedrawBossList = function()
+    -- Never render a blank panel. Until a real list arrives, show a single
+    -- placeholder row so the user sees the list is loading rather than empty.
+    -- The OnUpdate ensure-loop keeps re-requesting until bosses populate.
+    if #bosses == 0 then
+        FauxScrollFrame_Update(scrollFrame, 0, VISIBLE_ROWS, ROW_HEIGHT)
+        for i = 1, VISIBLE_ROWS do bossRows[i]:Hide() end
+        local row = bossRows[1]
+        row.text:SetText("Loading boss list...")
+        row.text:SetTextColor(0.6, 0.6, 0.6)
+        row.status:SetText("")
+        row.goBtn:Hide()
+        row:Show()
+        return
+    end
+
     FauxScrollFrame_Update(scrollFrame, #bosses, VISIBLE_ROWS, ROW_HEIGHT)
     local offset = FauxScrollFrame_GetOffset(scrollFrame)
 
@@ -428,6 +443,9 @@ RedrawBossList = function()
 
         if boss then
             row.text:SetText(dataIndex .. ". " .. boss.name)
+            -- Reset color: the loading placeholder dims row 1 to grey, so a real
+            -- entry reusing that row must restore the normal white highlight.
+            row.text:SetTextColor(1, 1, 1)
 
             -- Style status color
             local statusLabelText = "Alive"
@@ -593,14 +611,45 @@ local function StartPolling()
     end
 end
 
+-- Request the boss list from the tank bot. The server's "dungeon bosses" value
+-- returns empty (and caches that for ~5s) whenever the bot isn't fully in the
+-- dungeon yet, so a single query on zone-change is unreliable. Callers pair this
+-- with the ensure-loop below to keep asking until a real list comes back.
+local function RequestBossList()
+    SendDcCommand("bosses", "addon")
+end
+
 -- Custom timer implementation using frame OnUpdate since WotLK standard C_Timer is limited or backported
 local elapsed = 0
+local bossEnsureElapsed = 0
 local function OnUpdateHandler(self, elap)
-    if not frame:IsVisible() or not isDCOn then return end
-    elapsed = elapsed + elap
-    if elapsed >= 2.0 then
-        elapsed = 0
-        SendDcCommand("status", "addon")
+    if not frame:IsVisible() then return end
+
+    -- Status poll only matters while a clear is actually running.
+    if isDCOn then
+        elapsed = elapsed + elap
+        if elapsed >= 2.0 then
+            elapsed = 0
+            SendDcCommand("status", "addon")
+        end
+    end
+
+    -- Ensure-loop: as long as we have no boss list, keep asking for one
+    -- (every 2s) regardless of on/off state. This self-heals the case where
+    -- the initial zone-change query landed before the bot was in the instance
+    -- and got an empty (cached) reply. Gated on being in a 5-man so we don't
+    -- poll out in the open world.
+    if #bosses == 0 then
+        bossEnsureElapsed = bossEnsureElapsed + elap
+        if bossEnsureElapsed >= 2.0 then
+            bossEnsureElapsed = 0
+            local inInstance, instanceType = IsInInstance()
+            if inInstance and instanceType == "party" then
+                RequestBossList()
+            end
+        end
+    else
+        bossEnsureElapsed = 0
     end
 end
 frame:SetScript("OnUpdate", OnUpdateHandler)
@@ -720,7 +769,7 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
             delayFrame:SetScript("OnUpdate", function(sf, elap)
                 delayElapsed = delayElapsed + elap
                 if delayElapsed >= 3.0 then
-                    SendDcCommand("bosses", "addon")
+                    RequestBossList()
                     sf:SetScript("OnUpdate", nil)
                 end
             end)
@@ -736,7 +785,12 @@ end)
 frame:SetScript("OnShow", function()
     DungeonClearDB.visible = true
     SendDcCommand("status", "addon")
-    SendDcCommand("bosses", "addon")
+    RequestBossList()
+    -- Paint the loading placeholder now so the panel is never blank on open;
+    -- it's replaced the moment a BOSS_END arrives (and the ensure-loop keeps
+    -- re-requesting until then).
+    bossEnsureElapsed = 0
+    RedrawBossList()
 end)
 
 frame:SetScript("OnHide", function()
