@@ -285,12 +285,13 @@ local function UpdateStatusUI(enabled, targetName, state, stallReason, detail)
         end
         local tLabel, tColor = FormatStateTiny(state)
         local line = "|cff" .. RgbToHex(tColor) .. tLabel .. "|r"
-        -- Verbose tiny line: prefer the full detail sentence (it usually
-        -- already names the boss / who we're waiting on); fall back to just
-        -- the target boss name when there's no detail (e.g. a stall).
+        -- Verbose tiny line: state label, then the full detail sentence (who
+        -- we're waiting on / where we're heading), then a grey pipe divider
+        -- and the target boss name at the end.
         if detail and detail ~= "" then
             line = line .. "  |cff808080-|r  |cffcfcfcf" .. detail .. "|r"
-        elseif targetName and targetName ~= "None" and targetName ~= "" then
+        end
+        if targetName and targetName ~= "None" and targetName ~= "" then
             -- grey vertical divider between status and boss name
             line = line .. "  |cff808080||" .. "|r  |cffffd100" .. targetName .. "|r"
         end
