@@ -22,7 +22,6 @@ DungeonClearDB = DungeonClearDB or {
 local bosses = {}
 local pendingBosses = {}
 local bossRows = {}
-local pollTimer = nil
 local RedrawBossList
 local UpdateFrameHeight, UpdateLayout
 local pauseBtn
@@ -647,48 +646,35 @@ eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
 eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
 eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 
--- Polling Status Helper
-local function StartPolling()
-    if not pollTimer then
-        pollTimer = C_Timer.NewTimer(0.1, function() end) -- dummy initialization if needed
-        -- WotLK C_Timer emulation or simple OnUpdate hook
-    end
-end
-
 -- Request the boss list from the tank bot. The server's "dungeon bosses" value
 -- returns empty (and caches that for ~5s) whenever the bot isn't fully in the
 -- dungeon yet, so a single query on zone-change is unreliable. Callers pair this
--- with the ensure-loop below to keep asking until a real list comes back.
+-- with the empty-list retry below to keep asking until a real list comes back;
+-- once populated, the server pushes any further changes on its own.
 local function RequestBossList()
     SendDcCommand("bosses", "addon")
 end
 
--- Custom timer implementation using frame OnUpdate since WotLK standard C_Timer is limited or backported
-local elapsed = 0
+-- The server is now event-driven: while a clear is running it recomputes the
+-- tank's status every world tick and pushes a STATUS packet only when the state
+-- changes (entered combat, pulled a boss, a boss died, stalled, looting, party
+-- recovered, …), and likewise re-pushes the BOSS list whenever a boss's
+-- alive/dead/skipped state or the committed target changes. So we no longer
+-- poll for either — STATUS and BOSS arrive on their own the instant they move.
+--
+-- The one case the push path can't cover is browsing the boss list while DC is
+-- OFF: with no clear running there's no server-side pusher, and the bot's
+-- "dungeon bosses" value returns empty (cached ~5s) until it's fully zoned into
+-- the dungeon. So keep a bounded retry that fires ONLY while the list is still
+-- empty — it self-terminates the moment a real list arrives and never becomes a
+-- steady poll. RedrawBossList preserves the scroll offset.
 local bossEnsureElapsed = 0
 local function OnUpdateHandler(self, elap)
     if not frame:IsVisible() then return end
+    if #bosses > 0 then return end  -- populated: the server pushes updates from here
 
-    -- Status poll only matters while a clear is actually running.
-    if isDCOn then
-        elapsed = elapsed + elap
-        if elapsed >= 2.0 then
-            elapsed = 0
-            SendDcCommand("status", "addon")
-        end
-    end
-
-    -- Keep the boss list fresh. A boss's alive/dead/missing state changes as
-    -- the party clears, but the server only sends the list on request, so a
-    -- single fetch goes stale the moment the first boss dies. Re-ask on a
-    -- steady cadence: quickly (every 2s) while the list is still empty so the
-    -- panel fills in fast on zone-in, then more gently (every 5s) once it's
-    -- populated just to refresh statuses. Gated on being in a 5-man so we
-    -- don't poll out in the open world. RedrawBossList preserves the scroll
-    -- offset, so these refreshes don't disturb the user's place in the list.
     bossEnsureElapsed = bossEnsureElapsed + elap
-    local refreshInterval = (#bosses == 0) and 2.0 or 5.0
-    if bossEnsureElapsed >= refreshInterval then
+    if bossEnsureElapsed >= 2.0 then
         bossEnsureElapsed = 0
         local inInstance, instanceType = IsInInstance()
         if inInstance and instanceType == "party" then
@@ -777,12 +763,12 @@ local function OnAddonMessage(prefix, message, channel, sender)
         local chatMsg = parts[2] or ""
         DEFAULT_CHAT_FRAME:AddMessage("|cff3da6ff[DC] " .. chatMsg .. "|r")
     elseif parts[1] == "ERROR" then
-        -- Error responses from the server hook. The only error our status/bosses
-        -- polling can provoke is "no tank bot found" — which means the tank bot
-        -- left the group or logged out. If we still think DC is active (e.g.
-        -- stuck showing Paused), reset to OFF: that both reverts the readout and
-        -- stops the 2s poll loop (OnUpdateHandler gates on isDCOn), so we don't
-        -- spam the no-tank error every couple seconds.
+        -- Error responses from the server hook. The only error our boss-list
+        -- request or a command can provoke is "no tank bot found" — which means
+        -- the tank bot left the group or logged out. If we still think DC is
+        -- active (e.g. stuck showing Paused), reset to OFF to revert the readout;
+        -- with the tank gone the server stops pushing, so the panel would
+        -- otherwise sit on a stale state.
         local errorMsg = parts[2] or ""
         if isDCOn then
             UpdateStatusUI("0", nil, "off", nil)
