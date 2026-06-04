@@ -478,7 +478,15 @@ RedrawBossList = function()
         local boss = bosses[dataIndex]
 
         if boss then
-            row.text:SetText(dataIndex .. ". " .. boss.name)
+            -- On split maps, tag the row with its region. Wing labels read like
+            -- "Maraudon (Orange)"; show just the parenthetical ("Orange") to
+            -- keep the row short, falling back to the full label otherwise.
+            local label = dataIndex .. ". " .. boss.name
+            if boss.wing then
+                local region = boss.wing:match("%((.-)%)") or boss.wing
+                label = label .. " |cff9999ff(" .. region .. ")|r"
+            end
+            row.text:SetText(label)
             -- Reset color: the loading placeholder dims row 1 to grey, so a real
             -- entry reusing that row must restore the normal white highlight.
             row.text:SetTextColor(1, 1, 1)
@@ -733,13 +741,19 @@ local function OnAddonMessage(prefix, message, channel, sender)
         local x = tonumber(parts[6])
         local y = tonumber(parts[7])
         local z = tonumber(parts[8])
+        -- Optional trailing field: wing/region label on split maps (e.g.
+        -- Maraudon "Orange"/"Purple"/"Pristine Waters"). Empty/absent on
+        -- single-wing dungeons. Older servers omit it; nil is fine.
+        local wing = parts[9]
+        if wing == "" then wing = nil end
 
         table.insert(pendingBosses, {
             entry = entry,
             encounterIndex = index,
             name = name,
             status = status,
-            x = x, y = y, z = z
+            x = x, y = y, z = z,
+            wing = wing
         })
     elseif parts[1] == "BOSS_END" then
         if #pendingBosses > 0 then

@@ -26,8 +26,10 @@ but it is the most convenient way to start a clear and watch its progress.
   the tank stalls.
 - **Boss list.** Every boss in the dungeon with its status (Alive / Dead /
   Skipped / Missing) and a per-boss **Go** button that sends the tank straight
-  to that boss. On split, multi-wing maps the list is filtered to the bot's
-  nearest wing.
+  to that boss. On isolated multi-wing maps (Dire Maul, Scarlet Monastery) the
+  list is filtered to the bot's nearest wing. On connected multi-wing maps
+  (Maraudon) every boss stays in the list, tagged with its region (Orange /
+  Purple / Pristine Waters).
 - **Tiny mode.** Collapse the window to a single-line, movable readout you can
   tuck into a corner of the screen and still click to control.
 - **Silent.** All communication uses hidden addon messages. No party-chat spam;
@@ -154,7 +156,7 @@ command.
 |---|---|---|
 | `STATUS` | `enabled`, `nextBossEntry`, `nextBossName`, `stallReason`, `skippedCount`, `state` | Drives the status panel and tiny readout. |
 | `BOSS_START` | (none) | Begins a boss-list response; staged, not shown yet. |
-| `BOSS` | `entry`, `index`, `name`, `status`, `x`, `y`, `z` | One boss row. |
+| `BOSS` | `entry`, `index`, `name`, `status`, `x`, `y`, `z`, `wing` | One boss row. `wing` is a trailing, optional region label (empty on single-wing maps). |
 | `BOSS_END` | (none) | Commits the staged list (sorted by encounter index). |
 | `CHAT` | `message` | A bot announcement, printed as a `[DC]` chat line. |
 | `ERROR` | `message` | An error (e.g. no tank bot in group); resets the UI to OFF. |
