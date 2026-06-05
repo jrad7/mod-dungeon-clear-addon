@@ -319,12 +319,18 @@ end
 -- Uses PARTY distribution with LANG_ADDON prefix; the server-side hook
 -- intercepts and dispatches before any chat processing occurs.
 local function SendDcCommand(subCmd, param)
-    if (GetNumPartyMembers() and GetNumPartyMembers() > 0) or (GetNumRaidMembers() and GetNumRaidMembers() > 0) then
+    local inRaid = GetNumRaidMembers() and GetNumRaidMembers() > 0
+    local inParty = GetNumPartyMembers() and GetNumPartyMembers() > 0
+    if inRaid or inParty then
         local payload = "CMD\t" .. subCmd
         if param and param ~= "" then
             payload = payload .. "\t" .. tostring(param)
         end
-        SendAddonMessage("DC", payload, "PARTY")
+        -- In a raid, addon messages on the PARTY channel only reach the sender's
+        -- own subgroup, so a tank bot in another subgroup never gets the command.
+        -- Send on RAID when in a raid so it reaches every subgroup; PARTY covers
+        -- the ordinary 5-man case. The server hook accepts both.
+        SendAddonMessage("DC", payload, inRaid and "RAID" or "PARTY")
     elseif param ~= "addon" then
         -- Explicit user action (button / boss-list click) with no party to
         -- relay it to: tell them once. The automatic background refreshes
