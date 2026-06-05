@@ -325,7 +325,11 @@ local function SendDcCommand(subCmd, param)
             payload = payload .. "\t" .. tostring(param)
         end
         SendAddonMessage("DC", payload, "PARTY")
-    else
+    elseif param ~= "addon" then
+        -- Explicit user action (button / boss-list click) with no party to
+        -- relay it to: tell them once. The automatic background refreshes
+        -- (status / boss-list, param == "addon") stay silent so a solo player
+        -- standing in a dungeon isn't spammed every couple seconds.
         DEFAULT_CHAT_FRAME:AddMessage("|cffff3333DungeonClear: You must be in a party to send bot commands.|r")
     end
 end
