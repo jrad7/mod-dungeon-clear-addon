@@ -28,6 +28,15 @@ local pauseBtn
 local isDCOn = false
 local isPaused = false
 
+-- Settings panel (Interface -> AddOns -> DungeonClear -> Settings). These are
+-- forward-declared so OnAddonMessage / ADDON_LOADED (defined above the panel
+-- code) can call them; they're assigned in the settings-panel block below.
+local HandleSettingsLine        -- (parts) -> upsert one SETTINGS row
+local OnSettingsSyncBoundary    -- ("start"|"end") -> frame a sync batch
+local PushSettings              -- re-send saved overrides to the server
+local BuildSettingsFromCache    -- render rows from the cached schema at load
+local settingsErrorSuppressUntil = 0  -- swallow sync errors until this GetTime()
+
 
 -- UI Frame Creation
 local frame = CreateFrame("Frame", "DungeonClearFrame", UIParent)
@@ -346,7 +355,12 @@ local onBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
 onBtn:SetSize(68, 24)
 onBtn:SetPoint("TOPLEFT", statusFrame, "BOTTOMLEFT", 0, -8)
 onBtn:SetText("On")
-onBtn:SetScript("OnClick", function() SendDcCommand("on") end)
+onBtn:SetScript("OnClick", function()
+    SendDcCommand("on")
+    -- The leader tank is elected on "on"; push the player's overrides right
+    -- after so the run starts with their settings rather than the defaults.
+    if PushSettings then PushSettings() end
+end)
 
 local offBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
 offBtn:SetSize(68, 24)
@@ -385,6 +399,7 @@ tinyToggle:SetScript("OnClick", function(self, button)
     end
     if not isDCOn then
         SendDcCommand("on")
+        if PushSettings then PushSettings() end
     else
         SendDcCommand("pause")
     end
@@ -527,6 +542,7 @@ RedrawBossList = function()
                 row.goBtn:SetScript("OnClick", function()
                     if not isDCOn then
                         SendDcCommand("on")
+                        if PushSettings then PushSettings() end
                     end
                     SendDcCommand("go", boss.entry)
                 end)
@@ -768,11 +784,26 @@ local function OnAddonMessage(prefix, message, channel, sender)
                 RedrawBossList()
             end
         end
+    elseif parts[1] == "SYNCSTART" then
+        if OnSettingsSyncBoundary then OnSettingsSyncBoundary("start") end
+    elseif parts[1] == "SETTINGS" then
+        -- One player-facing setting's effective value + schema (key, value, min,
+        -- max, type, overridden). Renders/refreshes its control in the panel.
+        if HandleSettingsLine then HandleSettingsLine(parts) end
+    elseif parts[1] == "SYNCEND" then
+        if OnSettingsSyncBoundary then OnSettingsSyncBoundary("end") end
     elseif parts[1] == "CHAT" then
         -- Bot announcements routed through addon channel (silent)
         local chatMsg = parts[2] or ""
         DEFAULT_CHAT_FRAME:AddMessage("|cff3da6ff[DC] " .. chatMsg .. "|r")
     elseif parts[1] == "ERROR" then
+        -- A settings sync sent while solo / outside a tank's party draws a
+        -- "no tank bot" error. Swallow it briefly after a sync so opening the
+        -- panel isn't noisy — but only while DC is OFF, so a genuine tank-gone
+        -- error during a live clear (handled below) is never hidden.
+        if not isDCOn and GetTime() < settingsErrorSuppressUntil then
+            return
+        end
         -- Error responses from the server hook. The only error our boss-list
         -- request or a command can provoke is "no tank bot found" — which means
         -- the tank bot left the group or logged out. If we still think DC is
@@ -798,6 +829,13 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
             if DungeonClearDB.tinyMode == nil then DungeonClearDB.tinyMode = false end
             if DungeonClearDB.bossesFolded == nil then DungeonClearDB.bossesFolded = false end
             DungeonClearDB.hideChatSpam = nil -- Clean up legacy saved variable
+
+            -- Per-player setting overrides + the last schema the server told us
+            -- about (so the panel can render controls even before a sync lands).
+            DungeonClearDB.settings = DungeonClearDB.settings or {}
+            DungeonClearDB.schema = DungeonClearDB.schema or {}
+            DungeonClearDB.schemaOrder = DungeonClearDB.schemaOrder or {}
+            if BuildSettingsFromCache then BuildSettingsFromCache() end
 
             -- Restore layout
             frame:ClearAllPoints()
@@ -832,6 +870,10 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
                 delayElapsed = delayElapsed + elap
                 if delayElapsed >= 3.0 then
                     RequestBossList()
+                    -- Re-apply this player's saved overrides for the new run:
+                    -- the server keeps them only in memory keyed to the leader
+                    -- tank, so they must be pushed again each time we (re)enter.
+                    if PushSettings then PushSettings() end
                     sf:SetScript("OnUpdate", nil)
                 end
             end)
@@ -903,7 +945,9 @@ optCmdList:SetText(
     "|cffffd100Skip|r  \226\128\148  Skip the current boss / objective and move to the next.\n" ..
     "|cffffd100Pause / Resume|r  \226\128\148  Hold the tank in place without ending the clear, then resume.\n" ..
     "|cffffd100Go|r (per boss row)  \226\128\148  Send the tank straight to that boss (turns the clear on first).\n" ..
-    "|cffffd100Tiny|r  \226\128\148  Collapse the window to a single-line, movable readout.")
+    "|cffffd100Tiny|r  \226\128\148  Collapse the window to a single-line, movable readout.\n" ..
+    "|cffffd100Settings|r (sub-page)  \226\128\148  Override the server defaults (loot quality, engage ranges, " ..
+    "party spread, …) for your own runs. Saved per character and re-applied each run.")
 
 local openBtn = CreateFrame("Button", nil, optionsPanel, "UIPanelButtonTemplate")
 openBtn:SetSize(160, 24)
@@ -917,6 +961,272 @@ openBtn:SetScript("OnClick", function()
 end)
 
 InterfaceOptions_AddCategory(optionsPanel)
+
+-- ===========================================================================
+-- Settings sub-panel (Interface -> AddOns -> DungeonClear -> Settings)
+-- ===========================================================================
+-- Schema-driven per-player overrides. The server is the source of truth for
+-- which settings exist and their type/range: each `sync` streams one SETTINGS
+-- line per player-facing setting (key, value, min, max, type, overridden) and
+-- this panel renders a control for each. A new setting added server-side shows
+-- up here automatically with no addon change. Overrides are saved per character
+-- in DungeonClearDB.settings and re-pushed to the server each run (it keeps them
+-- only in memory, keyed to the leader tank).
+
+-- Friendly labels + tooltips. Optional decoration only: any key missing here
+-- still renders, falling back to the raw key as its label.
+local SettingMeta = {
+    LootMinQuality       = { label = "Minimum Loot Quality",
+                             desc = "Skip corpses whose best item is below this rarity (0 Poor -> 6 Artifact). Quest items always loot." },
+    PreventBotRelease    = { label = "Prevent Bot Release",
+                             desc = "Dead bots stay as a corpse to be resurrected instead of releasing to the graveyard." },
+    PartyMaxSpread       = { label = "Party Max Spread (yd)",
+                             desc = "How far the tank may lead the party before it holds to let everyone catch up." },
+    BossEngageRangeFloor = { label = "Boss Engage Floor (yd)",
+                             desc = "Minimum distance at which the tank commits to a boss pull." },
+    BossEngageRangeCap   = { label = "Boss Engage Cap (yd)",
+                             desc = "Maximum distance at which the tank commits to a boss pull." },
+    TrashWidthFloor      = { label = "Trash Scan Floor (yd)",
+                             desc = "Minimum corridor half-width when scanning for blocking trash." },
+    TrashWidthCap        = { label = "Trash Scan Cap (yd)",
+                             desc = "Maximum corridor half-width when scanning for blocking trash." },
+    DynamicAggroRange    = { label = "Dynamic Aggro Range",
+                             desc = "Size engage/trash bands from each creature's real aggro range instead of fixed distances." },
+    AggroRangeMargin     = { label = "Aggro Range Margin (yd)",
+                             desc = "Extra yards added to a boss's aggro range when computing the engage hand-off." },
+}
+
+-- Setting type ids mirror DcType in the server registry.
+local DCT_BOOL, DCT_UINT, DCT_INT, DCT_FLOAT = 0, 1, 2, 3
+
+local settingRows = {}     -- key -> row frame
+local settingOrder = {}    -- insertion order for layout
+local inSyncBatch = false
+
+local function StepFor(stype) return stype == DCT_FLOAT and 0.5 or 1 end
+
+local function RoundVal(stype, v)
+    if stype == DCT_FLOAT then
+        return math.floor(v * 2 + 0.5) / 2   -- snap to 0.5
+    end
+    return math.floor(v + 0.5)
+end
+
+local function FmtVal(stype, v)
+    if stype == DCT_BOOL then return (v ~= 0) and "On" or "Off" end
+    if stype == DCT_FLOAT then return string.format("%.1f", v) end
+    return tostring(math.floor(v + 0.5))
+end
+
+local settingsPanel = CreateFrame("Frame", "DungeonClearSettingsPanel", UIParent)
+settingsPanel.name = "Settings"
+settingsPanel.parent = optionsPanel.name  -- nests under "DungeonClear"
+
+local setTitle = settingsPanel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+setTitle:SetPoint("TOPLEFT", settingsPanel, "TOPLEFT", 16, -16)
+setTitle:SetText("Dungeon Clear - Settings")
+setTitle:SetTextColor(0.24, 0.60, 1.0)
+
+local setIntro = settingsPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+setIntro:SetPoint("TOPLEFT", setTitle, "BOTTOMLEFT", 0, -4)
+setIntro:SetWidth(580)
+setIntro:SetJustifyH("LEFT")
+setIntro:SetText(
+    "These override the server defaults for your own dungeon runs. Changes apply " ..
+    "immediately and are saved per character. You must be in a party with a tank " ..
+    "bot for them to take effect; \"Default\" reverts a setting to the server value.")
+setIntro:SetTextColor(0.6, 0.6, 0.6)
+
+-- Reset-everything-to-server-default button.
+local resetAllBtn = CreateFrame("Button", nil, settingsPanel, "UIPanelButtonTemplate")
+resetAllBtn:SetSize(150, 22)
+resetAllBtn:SetPoint("TOPLEFT", setIntro, "BOTTOMLEFT", 0, -10)
+resetAllBtn:SetText("Reset All to Default")
+resetAllBtn:SetScript("OnClick", function()
+    DungeonClearDB.settings = {}
+    SendDcCommand("reset", "")  -- empty key = clear the whole run
+end)
+
+-- Scroll area so the panel scales to any number of settings.
+local setScroll = CreateFrame("ScrollFrame", "DungeonClearSettingsScroll", settingsPanel, "UIPanelScrollFrameTemplate")
+setScroll:SetPoint("TOPLEFT", resetAllBtn, "BOTTOMLEFT", 0, -10)
+setScroll:SetPoint("BOTTOMRIGHT", settingsPanel, "BOTTOMRIGHT", -28, 16)
+
+local setContent = CreateFrame("Frame", "DungeonClearSettingsContent", setScroll)
+setContent:SetSize(560, 10)
+setScroll:SetScrollChild(setContent)
+
+-- Position every known row top-to-bottom and size the scroll child.
+local function RelayoutSettings()
+    local y = -6
+    for _, key in ipairs(settingOrder) do
+        local row = settingRows[key]
+        if row then
+            row:ClearAllPoints()
+            row:SetPoint("TOPLEFT", setContent, "TOPLEFT", 6, y)
+            row:SetPoint("RIGHT", setContent, "RIGHT", -6, 0)
+            row:Show()
+            y = y - 52
+        end
+    end
+    setContent:SetHeight(math.max(10, -y + 6))
+end
+
+-- Build a row's frame + control (control type fixed by the setting's type).
+local function CreateSettingRow(key, stype)
+    local meta = SettingMeta[key] or {}
+    local row = CreateFrame("Frame", nil, setContent)
+    row:SetSize(540, 48)
+    row.key = key
+    row.stype = stype
+
+    row.label = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    row.label:SetPoint("TOPLEFT", row, "TOPLEFT", 4, -2)
+    row.label:SetText(meta.label or key)
+    row.label:SetTextColor(0.92, 0.92, 0.92)
+
+    if meta.desc then
+        row:EnableMouse(true)
+        row:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_TOPLEFT")
+            GameTooltip:SetText(meta.label or key, 1, 1, 1)
+            GameTooltip:AddLine(meta.desc, 0.8, 0.8, 0.8, true)
+            GameTooltip:Show()
+        end)
+        row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    end
+
+    -- Per-row revert button, shown only while this setting is overridden.
+    row.defBtn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+    row.defBtn:SetSize(64, 18)
+    row.defBtn:SetPoint("TOPRIGHT", row, "TOPRIGHT", -2, -2)
+    row.defBtn:SetText("Default")
+    row.defBtn:SetScript("OnClick", function()
+        DungeonClearDB.settings[key] = nil
+        SendDcCommand("reset", key)
+    end)
+    row.defBtn:Hide()
+
+    if stype == DCT_BOOL then
+        local cb = CreateFrame("CheckButton", "DungeonClearCheck_" .. key, row, "UICheckButtonTemplate")
+        cb:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 8, 0)
+        cb:SetScript("OnClick", function(self)
+            if row.updating then return end
+            local v = self:GetChecked() and 1 or 0
+            DungeonClearDB.settings[key] = v
+            row.defBtn:Show()
+            SendDcCommand("set", key .. "\t" .. v)
+        end)
+        row.control = cb
+    else
+        local s = CreateFrame("Slider", "DungeonClearSlider_" .. key, row, "OptionsSliderTemplate")
+        s:SetWidth(300)
+        s:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 10, 2)
+        s:SetOrientation("HORIZONTAL")
+        getglobal(s:GetName() .. "Text"):SetText("")  -- use our own label instead
+        row.valText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        row.valText:SetPoint("LEFT", s, "RIGHT", 14, 0)
+        row.valText:SetTextColor(1, 0.82, 0)
+        s:SetScript("OnValueChanged", function(self, value)
+            value = RoundVal(stype, value)
+            row.valText:SetText(FmtVal(stype, value))
+            if row.updating then return end
+            DungeonClearDB.settings[key] = value
+            row.defBtn:Show()
+            SendDcCommand("set", key .. "\t" .. value)
+        end)
+        row.control = s
+    end
+
+    return row
+end
+
+-- Create-or-update the row for one setting from a SETTINGS line / cache entry.
+local function UpsertSetting(key, value, minV, maxV, stype, overridden)
+    -- Cache the schema so the panel can render before any sync (e.g. at login).
+    if not DungeonClearDB.schema[key] then
+        DungeonClearDB.schema[key] = {}
+        table.insert(DungeonClearDB.schemaOrder, key)
+    end
+    local sc = DungeonClearDB.schema[key]
+    sc.min, sc.max, sc.type = minV, maxV, stype
+
+    local row = settingRows[key]
+    if not row then
+        row = CreateSettingRow(key, stype)
+        settingRows[key] = row
+        table.insert(settingOrder, key)
+    end
+
+    row.updating = true
+    if stype == DCT_BOOL then
+        row.control:SetChecked(value ~= 0)
+    else
+        row.control:SetMinMaxValues(minV, maxV)
+        row.control:SetValueStep(StepFor(stype))
+        getglobal(row.control:GetName() .. "Low"):SetText(FmtVal(stype, minV))
+        getglobal(row.control:GetName() .. "High"):SetText(FmtVal(stype, maxV))
+        row.control:SetValue(value)
+        row.valText:SetText(FmtVal(stype, value))
+    end
+    row.updating = false
+
+    if overridden then row.defBtn:Show() else row.defBtn:Hide() end
+end
+
+-- Assign the forward-declared hooks used by OnAddonMessage / ADDON_LOADED.
+HandleSettingsLine = function(parts)
+    local key = parts[2]
+    local value = tonumber(parts[3])
+    local minV = tonumber(parts[4])
+    local maxV = tonumber(parts[5])
+    local stype = tonumber(parts[6])
+    local overridden = (parts[7] == "1")
+    if not key or value == nil or stype == nil then return end
+    UpsertSetting(key, value, minV, maxV, stype, overridden)
+    if not inSyncBatch then RelayoutSettings() end
+end
+
+OnSettingsSyncBoundary = function(which)
+    if which == "start" then
+        inSyncBatch = true
+    else
+        inSyncBatch = false
+        RelayoutSettings()
+    end
+end
+
+PushSettings = function()
+    if not DungeonClearDB.settings then return end
+    for k, v in pairs(DungeonClearDB.settings) do
+        SendDcCommand("set", k .. "\t" .. v)
+    end
+end
+
+BuildSettingsFromCache = function()
+    for _, key in ipairs(DungeonClearDB.schemaOrder or {}) do
+        local sc = DungeonClearDB.schema[key]
+        if sc and sc.type then
+            local v = DungeonClearDB.settings[key]
+            local overridden = (v ~= nil)
+            if v == nil then v = sc.min end  -- placeholder until the next sync
+            UpsertSetting(key, v, sc.min, sc.max, sc.type, overridden)
+        end
+    end
+    RelayoutSettings()
+end
+
+-- Pull fresh effective values + schema whenever the panel is shown. Sent on the
+-- silent "addon" param and guarded by an error-suppress window so opening it
+-- while solo doesn't spam "no tank bot".
+local function RequestSettingsSync()
+    settingsErrorSuppressUntil = GetTime() + 2.0
+    SendDcCommand("sync", "addon")
+end
+settingsPanel.refresh = RequestSettingsSync
+settingsPanel:SetScript("OnShow", RequestSettingsSync)
+
+InterfaceOptions_AddCategory(settingsPanel)
 
 -- Slash Command Registration
 SLASH_DUNGEONCLEAR1 = "/dc"

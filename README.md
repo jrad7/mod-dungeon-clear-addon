@@ -29,7 +29,11 @@ for loot, opens doors, and recovers from stalls. With this addon you just press
   tuck in a corner and still click to control.
 - **No chat spam.** Everything happens quietly; the tank's announcements show up
   as tidy `[DC]` lines in your chat frame.
-- **Remembers your setup.** Window position and size stick between sessions.
+- **Your own settings.** A **Settings** page lets you override the server's
+  defaults (loot quality, boss engage ranges, party spread, and more) for your
+  own runs — see below.
+- **Remembers your setup.** Window position, size, and your settings stick
+  between sessions.
 
 ## Requirements
 
@@ -104,6 +108,30 @@ activity, and the target boss. While tiny:
 - **Left-click the dot** to start the clear, or pause/resume if it's running.
 - **Right-click the bar** to expand back to the full window.
 - **Drag** to move it.
+
+### Settings (your own per-run overrides)
+
+The server ships sensible defaults for things like minimum loot quality, how far
+the tank may lead the party, and how close it gets before pulling a boss. You can
+override any of these **for your own dungeon runs** without changing the server
+config:
+
+1. Open **Game Menu → Interface → AddOns → DungeonClear → Settings** (the sub-page
+   under DungeonClear).
+2. Adjust the sliders / checkboxes. Each change applies immediately to your
+   current run.
+3. **Default** next to a setting reverts just that one to the server value;
+   **Reset All to Default** clears everything you've changed.
+
+Your overrides are **saved per character** and re-applied automatically whenever
+you start a clear or enter a dungeon, so you set them once and forget them. They
+only affect runs led by a tank bot in *your* party — they never change the server
+default for anyone else. You need to be in a party with a tank bot for the page to
+show live values (otherwise it shows your saved choices and applies them next time
+a tank is available).
+
+The list of available settings comes from the server, so if a future module
+version adds a tunable it appears here automatically.
 
 ### Slash commands
 
