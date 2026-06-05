@@ -327,7 +327,7 @@ end
 -- Command sender via addon messages (silent, no audio cue)
 -- Uses PARTY distribution with LANG_ADDON prefix; the server-side hook
 -- intercepts and dispatches before any chat processing occurs.
-local function SendDcCommand(subCmd, param)
+local function SendDcCommand(subCmd, param, silent)
     local inRaid = GetNumRaidMembers() and GetNumRaidMembers() > 0
     local inParty = GetNumPartyMembers() and GetNumPartyMembers() > 0
     if inRaid or inParty then
@@ -340,7 +340,7 @@ local function SendDcCommand(subCmd, param)
         -- Send on RAID when in a raid so it reaches every subgroup; PARTY covers
         -- the ordinary 5-man case. The server hook accepts both.
         SendAddonMessage("DC", payload, inRaid and "RAID" or "PARTY")
-    elseif param ~= "addon" then
+    elseif not silent and param ~= "addon" then
         -- Explicit user action (button / boss-list click) with no party to
         -- relay it to: tell them once. The automatic background refreshes
         -- (status / boss-list, param == "addon") stay silent so a solo player
@@ -999,6 +999,30 @@ local SettingMeta = {
 -- Setting type ids mirror DcType in the server registry.
 local DCT_BOOL, DCT_UINT, DCT_INT, DCT_FLOAT = 0, 1, 2, 3
 
+-- Built-in fallback schema mirroring the server's DcSettingsRegistry. It lets
+-- the panel render controls (with correct defaults/ranges) even with no live
+-- sync yet — e.g. solo, or browsing the ESC menu outside a dungeon. A live
+-- `sync` refines these with the server's real effective values and can add keys
+-- not listed here, so the panel still auto-extends when the server gains a
+-- setting; this table only needs touching to give a new setting nicer defaults.
+local DefaultSchema = {
+    LootMinQuality       = { type = DCT_UINT,  min = 0,  max = 6,  default = 0 },
+    PreventBotRelease    = { type = DCT_BOOL,  min = 0,  max = 1,  default = 1 },
+    PartyMaxSpread       = { type = DCT_FLOAT, min = 10, max = 60, default = 25 },
+    BossEngageRangeFloor = { type = DCT_FLOAT, min = 5,  max = 40, default = 12 },
+    BossEngageRangeCap   = { type = DCT_FLOAT, min = 10, max = 60, default = 30 },
+    TrashWidthFloor      = { type = DCT_FLOAT, min = 4,  max = 30, default = 8 },
+    TrashWidthCap        = { type = DCT_FLOAT, min = 10, max = 60, default = 30 },
+    DynamicAggroRange    = { type = DCT_BOOL,  min = 0,  max = 1,  default = 1 },
+    AggroRangeMargin     = { type = DCT_FLOAT, min = 0,  max = 10, default = 2 },
+}
+local DefaultSchemaOrder = {
+    "DynamicAggroRange", "AggroRangeMargin",
+    "BossEngageRangeFloor", "BossEngageRangeCap",
+    "TrashWidthFloor", "TrashWidthCap",
+    "PartyMaxSpread", "LootMinQuality", "PreventBotRelease",
+}
+
 local settingRows = {}     -- key -> row frame
 local settingOrder = {}    -- insertion order for layout
 local inSyncBatch = false
@@ -1044,7 +1068,7 @@ resetAllBtn:SetPoint("TOPLEFT", setIntro, "BOTTOMLEFT", 0, -10)
 resetAllBtn:SetText("Reset All to Default")
 resetAllBtn:SetScript("OnClick", function()
     DungeonClearDB.settings = {}
-    SendDcCommand("reset", "")  -- empty key = clear the whole run
+    SendDcCommand("reset", "", true)  -- empty key = clear the whole run
 end)
 
 -- Scroll area so the panel scales to any number of settings.
@@ -1103,7 +1127,7 @@ local function CreateSettingRow(key, stype)
     row.defBtn:SetText("Default")
     row.defBtn:SetScript("OnClick", function()
         DungeonClearDB.settings[key] = nil
-        SendDcCommand("reset", key)
+        SendDcCommand("reset", key, true)
     end)
     row.defBtn:Hide()
 
@@ -1115,7 +1139,7 @@ local function CreateSettingRow(key, stype)
             local v = self:GetChecked() and 1 or 0
             DungeonClearDB.settings[key] = v
             row.defBtn:Show()
-            SendDcCommand("set", key .. "\t" .. v)
+            SendDcCommand("set", key .. "\t" .. v, true)
         end)
         row.control = cb
     else
@@ -1133,7 +1157,7 @@ local function CreateSettingRow(key, stype)
             if row.updating then return end
             DungeonClearDB.settings[key] = value
             row.defBtn:Show()
-            SendDcCommand("set", key .. "\t" .. value)
+            SendDcCommand("set", key .. "\t" .. value, true)
         end)
         row.control = s
     end
@@ -1199,20 +1223,40 @@ end
 PushSettings = function()
     if not DungeonClearDB.settings then return end
     for k, v in pairs(DungeonClearDB.settings) do
-        SendDcCommand("set", k .. "\t" .. v)
+        SendDcCommand("set", k .. "\t" .. v, true)
     end
 end
 
 BuildSettingsFromCache = function()
+    local seen = {}
+    local function render(key, stype, minV, maxV, defaultV)
+        local v = DungeonClearDB.settings[key]
+        local overridden = (v ~= nil)
+        if v == nil then v = (defaultV ~= nil) and defaultV or minV end
+        UpsertSetting(key, v, minV, maxV, stype, overridden)
+        seen[key] = true
+    end
+
+    -- Built-in settings first (correct defaults/ranges), preferring any cached
+    -- min/max/type from a past sync but always using the built-in default value.
+    for _, key in ipairs(DefaultSchemaOrder) do
+        local d = DefaultSchema[key]
+        local c = DungeonClearDB.schema[key]
+        render(key,
+            (c and c.type) or d.type,
+            (c and c.min) or d.min,
+            (c and c.max) or d.max,
+            d.default)
+    end
+
+    -- Any extra keys a server sync advertised that aren't built in.
     for _, key in ipairs(DungeonClearDB.schemaOrder or {}) do
         local sc = DungeonClearDB.schema[key]
-        if sc and sc.type then
-            local v = DungeonClearDB.settings[key]
-            local overridden = (v ~= nil)
-            if v == nil then v = sc.min end  -- placeholder until the next sync
-            UpsertSetting(key, v, sc.min, sc.max, sc.type, overridden)
+        if sc and sc.type and not seen[key] then
+            render(key, sc.type, sc.min, sc.max, nil)
         end
     end
+
     RelayoutSettings()
 end
 
