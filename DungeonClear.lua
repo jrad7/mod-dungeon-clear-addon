@@ -23,6 +23,22 @@ local bosses = {}
 local pendingBosses = {}
 local bossRows = {}
 local RedrawBossList
+
+-- Identity of the instance the boss list currently describes. Compared on every
+-- zone change so a move into a *different* dungeon/raid (e.g. walking through a
+-- dungeon to reach a raid, or starting a second dungeon without toggling DC off)
+-- drops the prior run's stale list instead of clinging to it. nil = open world.
+local currentInstanceKey = nil
+local function GetInstanceKey()
+    local inInstance, instanceType = IsInInstance()
+    if not inInstance then return nil end
+    -- Instance name distinguishes dungeons/raids; the type guards the rare
+    -- same-name case. GetInstanceInfo's first return is the localized name.
+    local name
+    if GetInstanceInfo then name = GetInstanceInfo() end
+    name = name or GetRealZoneText() or ""
+    return instanceType .. ":" .. name
+end
 local UpdateFrameHeight, UpdateLayout
 local pauseBtn
 local isDCOn = false
@@ -703,7 +719,7 @@ local function OnUpdateHandler(self, elap)
     if bossEnsureElapsed >= 2.0 then
         bossEnsureElapsed = 0
         local inInstance, instanceType = IsInInstance()
-        if inInstance and instanceType == "party" then
+        if inInstance and (instanceType == "party" or instanceType == "raid") then
             RequestBossList()
         end
     end
@@ -861,8 +877,25 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         OnAddonMessage(prefix, message, channel, sender)
     elseif event == "ZONE_CHANGED_NEW_AREA" or event == "PLAYER_ENTERING_WORLD" or event == "GROUP_ROSTER_UPDATE" then
         local inInstance, instanceType = IsInInstance()
-        if inInstance and instanceType == "party" then
-            -- Auto-query bosses list when entering dungeon
+
+        -- Did we cross into a *different* instance since the list was built? If
+        -- so, drop the stale boss list now. This re-arms the empty-list ensure
+        -- loop (it only retries while #bosses == 0) so it keeps re-requesting
+        -- until the new dungeon/raid's list arrives, and paints "Loading..."
+        -- meanwhile — instead of showing the previous run's bosses until the
+        -- player manually toggles DC on. Covers both walking a dungeon into a
+        -- raid and starting a second dungeon without toggling off.
+        local newKey = GetInstanceKey()
+        if newKey ~= currentInstanceKey then
+            currentInstanceKey = newKey
+            bosses = {}
+            pendingBosses = {}
+            bossEnsureElapsed = 0
+            RedrawBossList()
+        end
+
+        if inInstance and (instanceType == "party" or instanceType == "raid") then
+            -- Auto-query bosses list when entering dungeon/raid
             -- Small delay to ensure party is fully loaded on the server
             local delayFrame = CreateFrame("Frame")
             local delayElapsed = 0
