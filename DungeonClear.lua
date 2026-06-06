@@ -1027,6 +1027,14 @@ local HiddenSettings = {
     TrashWidthCap        = true,
 }
 
+-- Numeric settings that read better as a typed value than a dragged slider —
+-- e.g. an exact rest %. Rendered as an EditBox (digits only, clamped to the
+-- setting's min/max on commit) instead of the default slider.
+local TextBoxSettings = {
+    RestHealthPct = true,
+    RestManaPct   = true,
+}
+
 -- WoW item-quality id -> display name + color (used by the Minimum Loot Quality
 -- dropdown). Mirrors the client's ITEM_QUALITY_COLORS / ITEM_QUALITYn_DESC but
 -- hardcoded so the colored entries render identically regardless of locale.
@@ -1125,10 +1133,32 @@ local setContent = CreateFrame("Frame", "DungeonClearSettingsContent", setScroll
 setContent:SetSize(560, 10)
 setScroll:SetScrollChild(setContent)
 
--- Position every known row top-to-bottom and size the scroll child.
+-- Control-type ordering for the panel: checkboxes, then dropdowns, then text
+-- boxes, then sliders. Keeps like controls grouped regardless of insertion order.
+local function ControlGroup(row)
+    if row.stype == DCT_BOOL then return 1 end
+    if row.isQuality then return 2 end
+    if row.isTextBox then return 3 end
+    return 4  -- slider
+end
+
+-- Position every known row top-to-bottom (grouped by control type) and size the
+-- scroll child.
 local function RelayoutSettings()
-    local y = -6
+    -- Stable sort by control group, preserving insertion order within a group.
+    local idx, keys = {}, {}
+    for i, key in ipairs(settingOrder) do idx[key] = i end
     for _, key in ipairs(settingOrder) do
+        if settingRows[key] then table.insert(keys, key) end
+    end
+    table.sort(keys, function(a, b)
+        local ga, gb = ControlGroup(settingRows[a]), ControlGroup(settingRows[b])
+        if ga ~= gb then return ga < gb end
+        return idx[a] < idx[b]
+    end)
+
+    local y = -6
+    for _, key in ipairs(keys) do
         local row = settingRows[key]
         if row then
             row:ClearAllPoints()
@@ -1214,6 +1244,33 @@ local function CreateSettingRow(key, stype)
         end)
         row.control = dd
         row.isQuality = true
+    elseif TextBoxSettings[key] then
+        -- Typed numeric entry: digits only, clamped to [min,max] on commit.
+        local eb = CreateFrame("EditBox", "DungeonClearEdit_" .. key, row, "InputBoxTemplate")
+        eb:SetAutoFocus(false)
+        eb:SetNumeric(true)
+        eb:SetMaxLetters(3)
+        eb:SetSize(48, 20)
+        eb:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 14, 2)
+        local suffix = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        suffix:SetPoint("LEFT", eb, "RIGHT", 6, 0)
+        suffix:SetText("%")
+        suffix:SetTextColor(1, 0.82, 0)
+        local function Commit(self)
+            local v = tonumber(self:GetText()) or (row.minV or 0)
+            local lo, hi = row.minV or 0, row.maxV or 100
+            if v < lo then v = lo elseif v > hi then v = hi end
+            v = math.floor(v + 0.5)
+            self:SetText(tostring(v))
+            if row.updating then return end
+            DungeonClearDB.settings[key] = v
+            row.defBtn:Show()
+            SendDcCommand("set", key .. "\t" .. v, true)
+        end
+        eb:SetScript("OnEnterPressed", function(self) Commit(self); self:ClearFocus() end)
+        eb:SetScript("OnEditFocusLost", Commit)
+        row.control = eb
+        row.isTextBox = true
     else
         local s = CreateFrame("Slider", "DungeonClearSlider_" .. key, row, "OptionsSliderTemplate")
         s:SetWidth(300)
@@ -1266,6 +1323,9 @@ local function UpsertSetting(key, value, minV, maxV, stype, overridden)
         if v < 0 then v = 0 elseif v > 6 then v = 6 end
         UIDropDownMenu_SetSelectedValue(row.control, v)
         UIDropDownMenu_SetText(row.control, QualityText(v))
+    elseif row.isTextBox then
+        row.minV, row.maxV = minV, maxV
+        row.control:SetText(tostring(math.floor(value + 0.5)))
     else
         row.control:SetMinMaxValues(minV, maxV)
         row.control:SetValueStep(StepFor(stype))
