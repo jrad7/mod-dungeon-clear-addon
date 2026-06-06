@@ -1009,6 +1009,10 @@ local SettingMeta = {
                              desc = "Skip corpses whose best item is below this rarity. Quest items always loot." },
     IgnoreChests         = { label = "Ignore Chests",
                              desc = "Don't stop for treasure chests or other world objects while clearing — only loot creature corpses." },
+    RestHealthPct        = { label = "Rest Health %",
+                             desc = "Health the party eats up to between pulls, overriding the server's AiPlayerbot.AlmostFullHealth for this run. 0 = use the server default." },
+    RestManaPct          = { label = "Rest Mana %",
+                             desc = "Mana the party drinks up to between pulls, overriding the server's AiPlayerbot.HighMana for this run. 0 = use the server default." },
 }
 
 -- Settings the server still streams (and the conf file still tunes) but that we
@@ -1055,10 +1059,13 @@ local DefaultSchema = {
     PartyMaxSpread       = { type = DCT_FLOAT, min = 10, max = 60, default = 25 },
     LootMinQuality       = { type = DCT_UINT,  min = 0,  max = 6,  default = 0 },
     IgnoreChests         = { type = DCT_BOOL,  min = 0,  max = 1,  default = 1 },
+    RestHealthPct        = { type = DCT_UINT,  min = 0,  max = 100, default = 0 },
+    RestManaPct          = { type = DCT_UINT,  min = 0,  max = 100, default = 0 },
 }
 local DefaultSchemaOrder = {
     "DynamicAggroRange", "PreventBotRelease",
     "PartyMaxSpread", "LootMinQuality", "IgnoreChests",
+    "RestHealthPct", "RestManaPct",
 }
 
 local settingRows = {}     -- key -> row frame
