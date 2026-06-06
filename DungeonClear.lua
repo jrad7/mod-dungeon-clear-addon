@@ -976,25 +976,44 @@ InterfaceOptions_AddCategory(optionsPanel)
 -- Friendly labels + tooltips. Optional decoration only: any key missing here
 -- still renders, falling back to the raw key as its label.
 local SettingMeta = {
-    LootMinQuality       = { label = "Minimum Loot Quality",
-                             desc = "Skip corpses whose best item is below this rarity (0 Poor -> 6 Artifact). Quest items always loot." },
+    DynamicAggroRange    = { label = "Dynamic Aggro Range",
+                             desc = "Size engage/trash bands from each creature's real aggro range instead of fixed distances." },
     PreventBotRelease    = { label = "Prevent Bot Release",
                              desc = "Dead bots stay as a corpse to be resurrected instead of releasing to the graveyard." },
     PartyMaxSpread       = { label = "Party Max Spread (yd)",
                              desc = "How far the tank may lead the party before it holds to let everyone catch up." },
-    BossEngageRangeFloor = { label = "Boss Engage Floor (yd)",
-                             desc = "Minimum distance at which the tank commits to a boss pull." },
-    BossEngageRangeCap   = { label = "Boss Engage Cap (yd)",
-                             desc = "Maximum distance at which the tank commits to a boss pull." },
-    TrashWidthFloor      = { label = "Trash Scan Floor (yd)",
-                             desc = "Minimum corridor half-width when scanning for blocking trash." },
-    TrashWidthCap        = { label = "Trash Scan Cap (yd)",
-                             desc = "Maximum corridor half-width when scanning for blocking trash." },
-    DynamicAggroRange    = { label = "Dynamic Aggro Range",
-                             desc = "Size engage/trash bands from each creature's real aggro range instead of fixed distances." },
-    AggroRangeMargin     = { label = "Aggro Range Margin (yd)",
-                             desc = "Extra yards added to a boss's aggro range when computing the engage hand-off." },
+    LootMinQuality       = { label = "Minimum Loot Quality",
+                             desc = "Skip corpses whose best item is below this rarity. Quest items always loot." },
 }
+
+-- Settings the server still streams (and the conf file still tunes) but that we
+-- deliberately keep out of the player-facing panel: advanced engage/scan tuning
+-- that's better left at the server default. UpsertSetting drops these so a live
+-- sync can't recreate a row for them.
+local HiddenSettings = {
+    AggroRangeMargin     = true,
+    BossEngageRangeFloor = true,
+    BossEngageRangeCap   = true,
+    TrashWidthFloor      = true,
+    TrashWidthCap        = true,
+}
+
+-- WoW item-quality id -> display name + color (used by the Minimum Loot Quality
+-- dropdown). Mirrors the client's ITEM_QUALITY_COLORS / ITEM_QUALITYn_DESC but
+-- hardcoded so the colored entries render identically regardless of locale.
+local QualityInfo = {
+    [0] = { name = "Poor",      hex = "ff9d9d9d" },
+    [1] = { name = "Common",    hex = "ffffffff" },
+    [2] = { name = "Uncommon",  hex = "ff1eff00" },
+    [3] = { name = "Rare",      hex = "ff0070dd" },
+    [4] = { name = "Epic",      hex = "ffa335ee" },
+    [5] = { name = "Legendary", hex = "ffff8000" },
+    [6] = { name = "Artifact",  hex = "ffe6cc80" },
+}
+local function QualityText(v)
+    local info = QualityInfo[v] or QualityInfo[0]
+    return "|c" .. info.hex .. info.name .. "|r"
+end
 
 -- Setting type ids mirror DcType in the server registry.
 local DCT_BOOL, DCT_UINT, DCT_INT, DCT_FLOAT = 0, 1, 2, 3
@@ -1006,21 +1025,14 @@ local DCT_BOOL, DCT_UINT, DCT_INT, DCT_FLOAT = 0, 1, 2, 3
 -- not listed here, so the panel still auto-extends when the server gains a
 -- setting; this table only needs touching to give a new setting nicer defaults.
 local DefaultSchema = {
-    LootMinQuality       = { type = DCT_UINT,  min = 0,  max = 6,  default = 0 },
+    DynamicAggroRange    = { type = DCT_BOOL,  min = 0,  max = 1,  default = 1 },
     PreventBotRelease    = { type = DCT_BOOL,  min = 0,  max = 1,  default = 1 },
     PartyMaxSpread       = { type = DCT_FLOAT, min = 10, max = 60, default = 25 },
-    BossEngageRangeFloor = { type = DCT_FLOAT, min = 5,  max = 40, default = 12 },
-    BossEngageRangeCap   = { type = DCT_FLOAT, min = 10, max = 60, default = 30 },
-    TrashWidthFloor      = { type = DCT_FLOAT, min = 4,  max = 30, default = 8 },
-    TrashWidthCap        = { type = DCT_FLOAT, min = 10, max = 60, default = 30 },
-    DynamicAggroRange    = { type = DCT_BOOL,  min = 0,  max = 1,  default = 1 },
-    AggroRangeMargin     = { type = DCT_FLOAT, min = 0,  max = 10, default = 2 },
+    LootMinQuality       = { type = DCT_UINT,  min = 0,  max = 6,  default = 0 },
 }
 local DefaultSchemaOrder = {
-    "DynamicAggroRange", "AggroRangeMargin",
-    "BossEngageRangeFloor", "BossEngageRangeCap",
-    "TrashWidthFloor", "TrashWidthCap",
-    "PartyMaxSpread", "LootMinQuality", "PreventBotRelease",
+    "DynamicAggroRange", "PreventBotRelease",
+    "PartyMaxSpread", "LootMinQuality",
 }
 
 local settingRows = {}     -- key -> row frame
@@ -1142,6 +1154,33 @@ local function CreateSettingRow(key, stype)
             SendDcCommand("set", key .. "\t" .. v, true)
         end)
         row.control = cb
+    elseif key == "LootMinQuality" then
+        -- Loot rarity reads as named tiers, not a number, so a colored dropdown
+        -- ("Common", "Rare", "Epic", …) is clearer than a 0-6 slider.
+        local dd = CreateFrame("Frame", "DungeonClearDropdown_" .. key, row, "UIDropDownMenuTemplate")
+        dd:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", -6, -2)
+        UIDropDownMenu_SetWidth(dd, 130)
+        local function OnSelect(self)
+            local v = self.value
+            UIDropDownMenu_SetSelectedValue(dd, v)
+            UIDropDownMenu_SetText(dd, QualityText(v))
+            if row.updating then return end
+            DungeonClearDB.settings[key] = v
+            row.defBtn:Show()
+            SendDcCommand("set", key .. "\t" .. v, true)
+        end
+        UIDropDownMenu_Initialize(dd, function(self, level)
+            for q = 0, 6 do
+                local entry = UIDropDownMenu_CreateInfo()
+                entry.text = QualityText(q)
+                entry.value = q
+                entry.func = OnSelect
+                entry.checked = (UIDropDownMenu_GetSelectedValue(dd) == q)
+                UIDropDownMenu_AddButton(entry, level)
+            end
+        end)
+        row.control = dd
+        row.isQuality = true
     else
         local s = CreateFrame("Slider", "DungeonClearSlider_" .. key, row, "OptionsSliderTemplate")
         s:SetWidth(300)
@@ -1167,6 +1206,10 @@ end
 
 -- Create-or-update the row for one setting from a SETTINGS line / cache entry.
 local function UpsertSetting(key, value, minV, maxV, stype, overridden)
+    -- Drop settings we deliberately keep out of the panel, even if the server
+    -- still streams them in a live sync.
+    if HiddenSettings[key] then return end
+
     -- Cache the schema so the panel can render before any sync (e.g. at login).
     if not DungeonClearDB.schema[key] then
         DungeonClearDB.schema[key] = {}
@@ -1185,6 +1228,11 @@ local function UpsertSetting(key, value, minV, maxV, stype, overridden)
     row.updating = true
     if stype == DCT_BOOL then
         row.control:SetChecked(value ~= 0)
+    elseif row.isQuality then
+        local v = math.floor(value + 0.5)
+        if v < 0 then v = 0 elseif v > 6 then v = 6 end
+        UIDropDownMenu_SetSelectedValue(row.control, v)
+        UIDropDownMenu_SetText(row.control, QualityText(v))
     else
         row.control:SetMinMaxValues(minV, maxV)
         row.control:SetValueStep(StepFor(stype))
