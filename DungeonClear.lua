@@ -51,7 +51,6 @@ local HandleSettingsLine        -- (parts) -> upsert one SETTINGS row
 local OnSettingsSyncBoundary    -- ("start"|"end") -> frame a sync batch
 local PushSettings              -- re-send saved overrides to the server
 local BuildSettingsFromCache    -- render rows from the cached schema at load
-local settingsErrorSuppressUntil = 0  -- swallow sync errors until this GetTime()
 
 
 -- UI Frame Creation
@@ -813,25 +812,16 @@ local function OnAddonMessage(prefix, message, channel, sender)
         local chatMsg = parts[2] or ""
         DEFAULT_CHAT_FRAME:AddMessage("|cff3da6ff[DC] " .. chatMsg .. "|r")
     elseif parts[1] == "ERROR" then
-        -- A settings sync sent while solo / outside a tank's party draws a
-        -- "no tank bot" error. Swallow it briefly after a sync so opening the
-        -- panel isn't noisy — but only while DC is OFF, so a genuine tank-gone
-        -- error during a live clear (handled below) is never hidden.
-        if not isDCOn and GetTime() < settingsErrorSuppressUntil then
-            return
-        end
-        -- Error responses from the server hook. The only error our boss-list
-        -- request or a command can provoke is "no tank bot found" — which means
-        -- the tank bot left the group or logged out. If we still think DC is
-        -- active (e.g. stuck showing Paused), reset to OFF to revert the readout;
-        -- with the tank gone the server stops pushing, so the panel would
-        -- otherwise sit on a stale state.
-        local errorMsg = parts[2] or ""
+        -- The only error the server hook raises is "no tank bot found", which
+        -- our background status/boss polls provoke constantly whenever the tank
+        -- bot isn't in the instance with us. While DC is OFF that's expected and
+        -- says nothing useful, so it must never reach chat — printing it spammed
+        -- the player on every poll. We only act on it during a live clear: if we
+        -- still think DC is active, the tank left mid-run, so revert to OFF
+        -- (one-shot, since this flips isDCOn false) and say so once.
         if isDCOn then
             UpdateStatusUI("0", nil, "off", nil)
             DEFAULT_CHAT_FRAME:AddMessage("|cffff3333[DC] Tank bot is no longer in the group \226\128\148 dungeon clear turned off.|r")
-        else
-            DEFAULT_CHAT_FRAME:AddMessage("|cffff3333[DC] " .. errorMsg .. "|r")
         end
     end
 end
@@ -1342,10 +1332,9 @@ BuildSettingsFromCache = function()
 end
 
 -- Pull fresh effective values + schema whenever the panel is shown. Sent on the
--- silent "addon" param and guarded by an error-suppress window so opening it
--- while solo doesn't spam "no tank bot".
+-- silent "addon" param; a missing tank bot no longer reaches chat, so there's
+-- nothing to suppress.
 local function RequestSettingsSync()
-    settingsErrorSuppressUntil = GetTime() + 2.0
     SendDcCommand("sync", "addon")
 end
 settingsPanel.refresh = RequestSettingsSync
