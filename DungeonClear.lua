@@ -1007,6 +1007,8 @@ local SettingMeta = {
                              desc = "How far the tank may lead the party before it holds to let everyone catch up." },
     LootMinQuality       = { label = "Minimum Loot Quality",
                              desc = "Skip corpses whose best item is below this rarity. Quest items always loot." },
+    IgnoreChests         = { label = "Ignore Chests",
+                             desc = "Don't stop for treasure chests or other world objects while clearing — only loot creature corpses." },
 }
 
 -- Settings the server still streams (and the conf file still tunes) but that we
@@ -1052,10 +1054,11 @@ local DefaultSchema = {
     PreventBotRelease    = { type = DCT_BOOL,  min = 0,  max = 1,  default = 1 },
     PartyMaxSpread       = { type = DCT_FLOAT, min = 10, max = 60, default = 25 },
     LootMinQuality       = { type = DCT_UINT,  min = 0,  max = 6,  default = 0 },
+    IgnoreChests         = { type = DCT_BOOL,  min = 0,  max = 1,  default = 1 },
 }
 local DefaultSchemaOrder = {
     "DynamicAggroRange", "PreventBotRelease",
-    "PartyMaxSpread", "LootMinQuality",
+    "PartyMaxSpread", "LootMinQuality", "IgnoreChests",
 }
 
 local settingRows = {}     -- key -> row frame
