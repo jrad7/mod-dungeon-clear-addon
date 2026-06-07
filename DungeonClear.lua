@@ -620,6 +620,7 @@ UpdatePullControls = function()
         if not isDCOn then
             -- DC off: dark (offline) dot, greyed caption, no live state.
             tinyPullDot:SetTexture("Interface\\FriendsFrame\\StatusIcon-Offline")
+            tinyPullDot:SetTexCoord(0, 1, 0, 1)
             tinyPullDot:SetVertexColor(1, 1, 1)
             if tinyPullText then tinyPullText:SetText("|cff707070Pull|r |cff808080|||r") end
             if tinyPullToggle then tinyPullToggle:Disable() end
@@ -637,15 +638,19 @@ UpdatePullControls = function()
             end
             if pullSetting == 1 then
                 tinyPullDot:SetTexture("Interface\\FriendsFrame\\StatusIcon-Online") -- green
+                tinyPullDot:SetTexCoord(0, 1, 0, 1)
                 tinyPullDot:SetVertexColor(1, 1, 1)
             elseif pullSetting == 2 then
                 -- Solid blue circle for Dynamic: the portrait alpha mask is a filled
-                -- white disc (tints cleanly to blue). The Away clock and the ping
-                -- ring both read wrong here; this is an actual filled circle.
+                -- white disc (tints cleanly to blue). It fills its frame edge to edge,
+                -- so pad it with an over-range texcoord (clamps to transparent) to
+                -- match the inset of the StatusIcon dots; otherwise it reads oversized.
                 tinyPullDot:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
+                tinyPullDot:SetTexCoord(-0.35, 1.35, -0.35, 1.35)
                 tinyPullDot:SetVertexColor(0.30, 0.70, 1.00)
             else
                 tinyPullDot:SetTexture("Interface\\FriendsFrame\\StatusIcon-Offline")
+                tinyPullDot:SetTexCoord(0, 1, 0, 1)
                 tinyPullDot:SetVertexColor(1, 1, 1)
             end
             if tinyPullText then
