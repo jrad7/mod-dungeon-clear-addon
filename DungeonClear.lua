@@ -57,9 +57,9 @@ local pullSetting = 0
 local pullDecision = 0
 -- Display metadata per pull state: segment label, command keyword, accent color.
 local PullStates = {
-    [0] = { seg = "Off", cmd = "off",     color = {0.55, 0.55, 0.55} },
-    [1] = { seg = "On",  cmd = "on",      color = {0.20, 0.85, 0.30} },
-    [2] = { seg = "Dyn", cmd = "dynamic", color = {0.30, 0.70, 1.00} },
+    [0] = { seg = "Leeroy",   cmd = "off",     color = {0.55, 0.55, 0.55} },
+    [1] = { seg = "Advanced", cmd = "on",      color = {0.20, 0.85, 0.30} },
+    [2] = { seg = "Dynamic",  cmd = "dynamic", color = {0.30, 0.70, 1.00} },
 }
 -- Per Dynamic-verdict display: full + tiny labels and an accent. Leeroy = amber
 -- (charge in), Advanced = blue (careful pull).
@@ -558,8 +558,8 @@ tinyPullToggle:SetScript("OnClick", function(self, button)
 end)
 tinyPullToggle:SetScript("OnEnter", function(self)
     GameTooltip:SetOwner(self, "ANCHOR_TOP")
-    GameTooltip:AddLine("Advanced Pull")
-    GameTooltip:AddLine("Click to cycle: Off / On / Dynamic", 0.8, 0.8, 0.8, true)
+    GameTooltip:AddLine("Pull Mode")
+    GameTooltip:AddLine("Click to cycle: Leeroy / Advanced / Dynamic", 0.8, 0.8, 0.8, true)
     GameTooltip:Show()
 end)
 tinyPullToggle:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -594,8 +594,9 @@ UpdatePullControls = function()
         local seg = pullSegs[i]
         if seg then
             local fs = seg:GetFontString()
-            -- Segments keep their base labels (Off / On / Dyn); the active state and
-            -- its live verdict are surfaced in the Pull Mode readout above instead.
+            -- Segments keep their base labels (Leeroy / Advanced / Dynamic); the
+            -- active state and its live verdict are surfaced in the Pull Mode
+            -- readout above instead.
             seg:SetText(PullStates[i].seg)
             if not isDCOn then
                 seg:Disable()
