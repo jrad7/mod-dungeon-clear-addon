@@ -77,6 +77,26 @@ you try while solo.
 | **Tiny** | Shrink the panel to a single line. |
 | Close (X) | Hide the window. |
 
+### Pull modes
+
+A pull control on the panel chooses how the tank takes trash packs on the way to
+each boss:
+
+| Mode | Behaviour |
+|---|---|
+| **Leeroy** *(default, pull off)* | Walk straight into each pack and fight it in place. Fast. |
+| **Advanced** *(pull on)* | Pull every pack back to a held camp before fighting it. Careful, but slow. |
+| **Dynamic** | Decide per pack — Leeroy a lone pack, Advanced-pull a clustered or oversized one. |
+
+**Leave it on Leeroy for almost every dungeon.** It's the default and keeps the
+clear moving at full speed; the tank and party handle ordinary trash fine fighting
+in place. **Advanced and Dynamic make a run much slower**, because every pull adds
+a camp-setup, a tag, and a drag-back. Switch to **Advanced** only in the specific
+spots where Leeroy is failing — packs big or tightly stacked enough to wipe the
+party in place. **Dynamic** is the middle ground: it Leeroys by default and only
+pays the Advanced cost on packs that need it. The status line shows which choice
+Dynamic made for the current pack. Pull mode is per-run and resets when you stop.
+
 ### Reading the status
 
 - **Mode**: `OFF`, `ON`, or `PAUSED`.
