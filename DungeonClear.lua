@@ -124,7 +124,7 @@ end)
 
 -- Status Info Subframe (Glassmorphism effect)
 local statusFrame = CreateFrame("Frame", nil, frame)
-statusFrame:SetSize(306, 95)
+statusFrame:SetSize(306, 115)
 statusFrame:SetPoint("TOP", frame, "TOP", 0, -35)
 statusFrame:SetBackdrop({
     bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
@@ -146,8 +146,21 @@ statusVal:SetPoint("LEFT", statusLabel, "RIGHT", 5, 0)
 statusVal:SetText("OFF")
 statusVal:SetTextColor(0.5, 0.5, 0.5)
 
+-- Pull-mode readout. Mirrors the segmented control's active state and, in
+-- Dynamic, the live per-pack verdict (Leeroy / Advanced). This used to be
+-- crammed into the Dyn segment label, where it overflowed the button.
+local pullModeLabel = statusFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+pullModeLabel:SetPoint("TOPLEFT", statusLabel, "BOTTOMLEFT", 0, -8)
+pullModeLabel:SetText("Pull Mode:")
+pullModeLabel:SetTextColor(0.8, 0.8, 0.8)
+
+local pullModeVal = statusFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+pullModeVal:SetPoint("LEFT", pullModeLabel, "RIGHT", 5, 0)
+pullModeVal:SetText("Off")
+pullModeVal:SetTextColor(0.6, 0.6, 0.6)
+
 local stateLabel = statusFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-stateLabel:SetPoint("TOPLEFT", statusLabel, "BOTTOMLEFT", 0, -8)
+stateLabel:SetPoint("TOPLEFT", pullModeLabel, "BOTTOMLEFT", 0, -8)
 stateLabel:SetText("Current State:")
 stateLabel:SetTextColor(0.8, 0.8, 0.8)
 
@@ -255,7 +268,7 @@ local function UpdateStatusUI(enabled, targetName, state, stallReason, detail, p
         targetVal:SetTextColor(0.6, 0.6, 0.6)
         stallLabel:Hide()
         stallVal:Hide()
-        statusFrame:SetHeight(101)
+        statusFrame:SetHeight(121)
     else
         isDCOn = true
         if isPaused then
@@ -331,11 +344,11 @@ local function UpdateStatusUI(enabled, targetName, state, stallReason, detail, p
             stallLabel:Show()
             stallVal:Show()
             stallVal:SetText(stallReason)
-            statusFrame:SetHeight(121)
+            statusFrame:SetHeight(141)
         else
             stallLabel:Hide()
             stallVal:Hide()
-            statusFrame:SetHeight(101)
+            statusFrame:SetHeight(121)
         end
     end
 
@@ -547,17 +560,29 @@ UpdatePullControls = function()
     -- Live verdict shown only while Dynamic is the active state and DC is on.
     local verdict = (isDCOn and pullSetting == 2) and DynVerdicts[pullDecision] or nil
 
+    -- Pull-mode readout in the status box: the active state, plus the live verdict
+    -- when Dynamic. Dimmed while DC is off (the setting still applies on the next
+    -- run, so show it rather than blanking it).
+    if pullModeVal then
+        local text = PullStates[pullSetting].seg
+        if pullSetting == 2 then
+            text = "Dynamic" .. (verdict and (" (" .. verdict.full .. ")") or "")
+        end
+        pullModeVal:SetText(text)
+        if not isDCOn then
+            pullModeVal:SetTextColor(0.5, 0.5, 0.5)
+        else
+            pullModeVal:SetTextColor(unpack(verdict and verdict.color or PullStates[pullSetting].color))
+        end
+    end
+
     for i = 0, 2 do
         local seg = pullSegs[i]
         if seg then
             local fs = seg:GetFontString()
-            -- The Dyn segment reflects the current auto-verdict in its label so the
-            -- player can see what the tank chose; the others keep their base label.
-            if i == 2 and verdict then
-                seg:SetText("Dyn: " .. verdict.full)
-            else
-                seg:SetText(PullStates[i].seg)
-            end
+            -- Segments keep their base labels (Off / On / Dyn); the active state and
+            -- its live verdict are surfaced in the Pull Mode readout above instead.
+            seg:SetText(PullStates[i].seg)
             if not isDCOn then
                 seg:Disable()
                 seg:UnlockHighlight()
@@ -783,9 +808,9 @@ UpdateFrameHeight = function()
         frame:SetWidth(330)
         -- +32 for the advanced-pull button row (24px button + 8px gap).
         if DungeonClearDB.bossesFolded then
-            frame:SetHeight(hasStall and 268 or 248)
+            frame:SetHeight(hasStall and 288 or 268)
         else
-            frame:SetHeight(hasStall and 498 or 478)
+            frame:SetHeight(hasStall and 518 or 498)
         end
     end
 end
