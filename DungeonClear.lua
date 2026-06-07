@@ -239,7 +239,11 @@ local function UpdateStatusUI(enabled, targetName, state, stallReason, detail)
         local stateText = state or "Idle"
         local stateColor = {0.8, 0.8, 0.8}
         if state == "paused" then
-            stateText = "Paused (holding position)"
+            -- `detail` carries WHY we're paused (a manual hold, or a door the
+            -- tank can't open). Surface that cause in the label instead of a
+            -- static "holding position" so players know the status at a glance.
+            local reason = (detail and detail ~= "") and detail or "holding position"
+            stateText = "Paused (" .. reason .. ")"
             stateColor = {0.9, 0.8, 0.2} -- Yellow
         elseif state == "moving" then
             stateText = "Advancing"
@@ -278,7 +282,13 @@ local function UpdateStatusUI(enabled, targetName, state, stallReason, detail)
         stateVal:SetText(stateText)
         stateVal:SetTextColor(unpack(stateColor))
 
-        detailVal:SetText(detail or "")
+        if state == "paused" then
+            -- The cause already rides in the label above; use the sub-line to
+            -- reassure that nothing is lost while the run is held.
+            detailVal:SetText("Holding position; boss progress saved.")
+        else
+            detailVal:SetText(detail or "")
+        end
 
         targetVal:SetText(targetName or "None")
         targetVal:SetTextColor(1, 0.82, 0) -- Gold
