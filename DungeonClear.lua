@@ -606,7 +606,7 @@ UpdatePullControls = function()
         if not isDCOn then
             -- DC off: dim grey dot, greyed caption, no live state.
             tinyPullDot:SetVertexColor(0.45, 0.45, 0.45)
-            if tinyPullText then tinyPullText:SetText("|cff707070Pull|r  |cff808080||r") end
+            if tinyPullText then tinyPullText:SetText("|cff707070Pull|r  |cff808080|||r") end
             if tinyPullToggle then tinyPullToggle:Disable() end
         else
             if tinyPullToggle then tinyPullToggle:Enable() end
@@ -621,7 +621,7 @@ UpdatePullControls = function()
             end
             tinyPullDot:SetVertexColor(unpack(color))
             if tinyPullText then
-                tinyPullText:SetText("|cff" .. RgbToHex(color) .. label .. "|r  |cff808080||r")
+                tinyPullText:SetText("|cff" .. RgbToHex(color) .. label .. "|r  |cff808080|||r")
             end
         end
         if DungeonClearDB.tinyMode then UpdateTinyWidth() end
