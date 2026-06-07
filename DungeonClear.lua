@@ -48,13 +48,22 @@ local UpdatePullControls -- styles the segments + tiny button to the current sta
 local isDCOn = false
 local isPaused = false
 -- Advanced-pull preference mirrored from the server's tri-state STATUS field:
--- 0 = Off, 1 = On, 2 = Dynamic (Dynamic is a not-yet-active stub).
+-- 0 = Off, 1 = On, 2 = Dynamic.
 local pullSetting = 0
+-- Live Dynamic verdict for the pack the tank is sizing up (server STATUS index
+-- 10): 0 none / 1 Leeroy / 2 Advanced. Only meaningful while pullSetting == 2.
+local pullDecision = 0
 -- Display metadata per pull state: segment label, command keyword, accent color.
 local PullStates = {
     [0] = { seg = "Off", cmd = "off",     color = {0.55, 0.55, 0.55} },
     [1] = { seg = "On",  cmd = "on",      color = {0.20, 0.85, 0.30} },
     [2] = { seg = "Dyn", cmd = "dynamic", color = {0.30, 0.70, 1.00} },
+}
+-- Per Dynamic-verdict display: full + tiny labels and an accent. Leeroy = amber
+-- (charge in), Advanced = blue (careful pull).
+local DynVerdicts = {
+    [1] = { full = "Leeroy",   tiny = "L", color = {1.00, 0.65, 0.10} },
+    [2] = { full = "Advanced", tiny = "A", color = {0.30, 0.70, 1.00} },
 }
 
 -- Settings panel (Interface -> AddOns -> DungeonClear -> Settings). These are
@@ -225,10 +234,11 @@ local function UpdateTinyWidth()
 end
 
 -- Helper to update status styling
-local function UpdateStatusUI(enabled, targetName, state, stallReason, detail, pullMode)
+local function UpdateStatusUI(enabled, targetName, state, stallReason, detail, pullMode, pullDec)
     isPaused = (state == "paused")
     pullSetting = tonumber(pullMode) or 0
     if not PullStates[pullSetting] then pullSetting = 0 end
+    pullDecision = tonumber(pullDec) or 0
     if not enabled or enabled == "0" then
         isDCOn = false
         isPaused = false
@@ -508,10 +518,20 @@ tinyPullBtn:Hide()
 -- Active segment: locked highlight + accent text. Inactive: dim grey. All
 -- disabled (greyed) while DC is off, since pull only applies during a clear.
 UpdatePullControls = function()
+    -- Live verdict shown only while Dynamic is the active state and DC is on.
+    local verdict = (isDCOn and pullSetting == 2) and DynVerdicts[pullDecision] or nil
+
     for i = 0, 2 do
         local seg = pullSegs[i]
         if seg then
             local fs = seg:GetFontString()
+            -- The Dyn segment reflects the current auto-verdict in its label so the
+            -- player can see what the tank chose; the others keep their base label.
+            if i == 2 and verdict then
+                seg:SetText("Dyn: " .. verdict.full)
+            else
+                seg:SetText(PullStates[i].seg)
+            end
             if not isDCOn then
                 seg:Disable()
                 seg:UnlockHighlight()
@@ -520,7 +540,9 @@ UpdatePullControls = function()
                 seg:Enable()
                 if i == pullSetting then
                     seg:LockHighlight()
-                    if fs then fs:SetTextColor(unpack(PullStates[i].color)) end
+                    -- Active Dyn segment tints to the verdict colour (amber Leeroy /
+                    -- blue Advanced) so the live choice reads at a glance.
+                    if fs then fs:SetTextColor(unpack((i == 2 and verdict) and verdict.color or PullStates[i].color)) end
                 else
                     seg:UnlockHighlight()
                     if fs then fs:SetTextColor(0.7, 0.7, 0.7) end
@@ -537,8 +559,16 @@ UpdatePullControls = function()
             if fs then fs:SetTextColor(0.45, 0.45, 0.45) end
         else
             tinyPullBtn:Enable()
-            tinyPullBtn:SetText(PullStates[pullSetting].seg)
-            if fs then fs:SetTextColor(unpack(PullStates[pullSetting].color)) end
+            -- In Dynamic, suffix the live verdict (e.g. "Dyn\194\183L") so the tiny
+            -- bar shows the auto choice without opening the full panel.
+            if verdict then
+                tinyPullBtn:SetText(PullStates[pullSetting].seg .. "\194\183" .. verdict.tiny)
+                fs = tinyPullBtn:GetFontString()
+                if fs then fs:SetTextColor(unpack(verdict.color)) end
+            else
+                tinyPullBtn:SetText(PullStates[pullSetting].seg)
+                if fs then fs:SetTextColor(unpack(PullStates[pullSetting].color)) end
+            end
         end
         if DungeonClearDB.tinyMode then UpdateTinyWidth() end
     end
@@ -884,12 +914,15 @@ local function OnAddonMessage(prefix, message, channel, sender)
         -- Trailing field (index 9): advanced-pull toggle ("1"/"0"). Older servers
         -- omit it; nil reads as off.
         local pullMode = parts[9]
+        -- Trailing field (index 10): live Dynamic verdict (0 none / 1 Leeroy /
+        -- 2 Advanced). Older servers omit it; nil reads as none.
+        local pullDec = parts[10]
 
         if nextBossName == "None" then nextBossName = nil end
         if stallReason == "" then stallReason = nil end
         if detail == "" then detail = nil end
 
-        UpdateStatusUI(enabled, nextBossName, state, stallReason, detail, pullMode)
+        UpdateStatusUI(enabled, nextBossName, state, stallReason, detail, pullMode, pullDec)
     elseif parts[1] == "BOSS_START" then
         -- Stage into pendingBosses; the live list is untouched until BOSS_END
         -- so a response that turns out empty (or never finalizes) can't blank
@@ -1104,7 +1137,9 @@ optCmdList:SetText(
     "|cffffd100Pause / Resume|r  \226\128\148  Hold the tank in place without ending the clear, then resume.\n" ..
     "|cffffd100Pull: Off / On / Dynamic|r  \226\128\148  LOS pull-to-camp control. |cff33d94dOn|r: the tank runs " ..
     "in to grab a pack and drags it back to where the party waits (passive) before everyone engages. " ..
-    "|cff4db3ffDynamic|r: let the bot decide when to pull (coming soon \226\128\148 currently behaves as Off). " ..
+    "|cff4db3ffDynamic|r: the tank scans each upcoming pack and auto-picks \226\128\148 it |cffffa61aLeeroys|r a lone " ..
+    "pack (charges in) but uses the careful |cff4db3ffAdvanced|r pull when packs are bunched in a room. The live " ..
+    "choice shows on the Dyn control. " ..
     "|cff8c8c8cOff|r: walk up and fight in place.\n" ..
     "|cffffd100Go|r (per boss row)  \226\128\148  Send the tank straight to that boss (turns the clear on first).\n" ..
     "|cffffd100Tiny|r  \226\128\148  Collapse the window to a single-line, movable readout.\n" ..
