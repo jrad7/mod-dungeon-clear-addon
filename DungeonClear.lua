@@ -514,8 +514,9 @@ tinyToggle:Hide()
 tinyPullDot = frame:CreateTexture(nil, "OVERLAY")
 tinyPullDot:SetSize(16, 16)
 tinyPullDot:SetPoint("LEFT", tinyIndicator, "RIGHT", 6, 0)
--- Neutral circle, vertex-tinted per state by UpdatePullControls.
-tinyPullDot:SetTexture("Interface\\COMMON\\Indicator-Gray")
+-- Reuse the FriendsFrame status dots (same family as the pause circle, which is
+-- known to render). The texture is swapped per state by UpdatePullControls.
+tinyPullDot:SetTexture("Interface\\FriendsFrame\\StatusIcon-Offline")
 
 tinyPullText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 tinyPullText:SetPoint("LEFT", tinyPullDot, "RIGHT", 4, 0)
@@ -604,22 +605,29 @@ UpdatePullControls = function()
 
     if tinyPullDot then
         if not isDCOn then
-            -- DC off: dim grey dot, greyed caption, no live state.
-            tinyPullDot:SetVertexColor(0.45, 0.45, 0.45)
+            -- DC off: dark (offline) dot, greyed caption, no live state.
+            tinyPullDot:SetTexture("Interface\\FriendsFrame\\StatusIcon-Offline")
             if tinyPullText then tinyPullText:SetText("|cff707070Pull|r  |cff808080|||r") end
             if tinyPullToggle then tinyPullToggle:Disable() end
         else
             if tinyPullToggle then tinyPullToggle:Enable() end
             -- The caption is the pull state; in Dynamic it appends the live verdict
-            -- (Leeroy / Advanced). The dot tints to the state/verdict accent, and a
-            -- grey "|" pipe caps the caption to divide it from the action line.
+            -- (Leeroy / Advanced) and carries the precise accent colour. The dot is
+            -- a coarse 3-state indicator: dark = Off, green = On, amber = Dynamic.
+            -- A grey "|" pipe caps the caption to divide it from the action line.
             local label = PullStates[pullSetting].seg
             local color = PullStates[pullSetting].color
             if verdict then
                 label = label .. ": " .. verdict.full
                 color = verdict.color
             end
-            tinyPullDot:SetVertexColor(unpack(color))
+            local dotTex = "Interface\\FriendsFrame\\StatusIcon-Offline"
+            if pullSetting == 1 then
+                dotTex = "Interface\\FriendsFrame\\StatusIcon-Online"   -- green
+            elseif pullSetting == 2 then
+                dotTex = "Interface\\FriendsFrame\\StatusIcon-Away"     -- amber
+            end
+            tinyPullDot:SetTexture(dotTex)
             if tinyPullText then
                 tinyPullText:SetText("|cff" .. RgbToHex(color) .. label .. "|r  |cff808080|||r")
             end
