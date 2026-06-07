@@ -41,10 +41,21 @@ local function GetInstanceKey()
 end
 local UpdateFrameHeight, UpdateLayout
 local pauseBtn
-local pullBtn
+local pullLabel          -- "Pull:" caption left of the segmented control
+local pullSegs = {}      -- [0]=Off [1]=On [2]=Dynamic segment buttons (full mode)
+local tinyPullBtn        -- compact cycling pull button (tiny mode)
+local UpdatePullControls -- styles the segments + tiny button to the current state
 local isDCOn = false
 local isPaused = false
-local isPullOn = false
+-- Advanced-pull preference mirrored from the server's tri-state STATUS field:
+-- 0 = Off, 1 = On, 2 = Dynamic (Dynamic is a not-yet-active stub).
+local pullSetting = 0
+-- Display metadata per pull state: segment label, command keyword, accent color.
+local PullStates = {
+    [0] = { seg = "Off", cmd = "off",     color = {0.55, 0.55, 0.55} },
+    [1] = { seg = "On",  cmd = "on",      color = {0.20, 0.85, 0.30} },
+    [2] = { seg = "Dyn", cmd = "dynamic", color = {0.30, 0.70, 1.00} },
+}
 
 -- Settings panel (Interface -> AddOns -> DungeonClear -> Settings). These are
 -- forward-declared so OnAddonMessage / ADDON_LOADED (defined above the panel
@@ -208,14 +219,16 @@ end
 
 -- Size the frame to hug the single-line content in tiny mode
 local function UpdateTinyWidth()
-    local w = 10 + 16 + 6 + (tinyText:GetStringWidth() or 0) + 12
-    frame:SetWidth(math.max(140, w))
+    -- pad(10) + circle(16) + gap(4) + pull button(34) + gap(6) + text + pad(12)
+    local w = 10 + 16 + 4 + 34 + 6 + (tinyText:GetStringWidth() or 0) + 12
+    frame:SetWidth(math.max(170, w))
 end
 
 -- Helper to update status styling
 local function UpdateStatusUI(enabled, targetName, state, stallReason, detail, pullMode)
     isPaused = (state == "paused")
-    isPullOn = (pullMode == "1")
+    pullSetting = tonumber(pullMode) or 0
+    if not PullStates[pullSetting] then pullSetting = 0 end
     if not enabled or enabled == "0" then
         isDCOn = false
         isPaused = false
@@ -346,16 +359,9 @@ local function UpdateStatusUI(enabled, targetName, state, stallReason, detail, p
             pauseBtn:Enable()
         end
     end
-    -- Advanced-pull toggle: label shows whether the mode is on; disabled when off.
-    if pullBtn then
-        if not isDCOn then
-            pullBtn:SetText("Adv. Pull: --")
-            pullBtn:Disable()
-        else
-            pullBtn:SetText(isPullOn and "Adv. Pull: ON" or "Adv. Pull: OFF")
-            pullBtn:Enable()
-        end
-    end
+    -- Advanced-pull controls (full-mode segments + tiny cycle button) reflect the
+    -- tri-state preference and DC's enabled gate.
+    if UpdatePullControls then UpdatePullControls() end
 
     if DungeonClearDB.tinyMode then
         UpdateTinyWidth()
@@ -424,14 +430,31 @@ pauseBtn:SetPoint("LEFT", skipBtn, "RIGHT", 11, 0)
 pauseBtn:SetText("Pause")
 pauseBtn:SetScript("OnClick", function() SendDcCommand("pause") end)
 
--- Advanced-pull toggle on its own row below the action buttons. Label + enabled
--- state are driven by UpdateStatusUI; the server toggles pull mode off the bare
--- "pull" subcommand.
-pullBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-pullBtn:SetSize(305, 24)
-pullBtn:SetPoint("TOPLEFT", onBtn, "BOTTOMLEFT", 0, -8)
-pullBtn:SetText("Adv. Pull: OFF")
-pullBtn:SetScript("OnClick", function() SendDcCommand("pull") end)
+-- Advanced-pull control on a second row: a "Pull:" caption + a 3-segment
+-- Off / On / Dynamic picker (replaces the old full-width toggle button). Each
+-- segment sends an explicit state so there's no client/server cycle drift; the
+-- active segment is highlighted + accent-colored by UpdatePullControls. Dynamic
+-- is wired through but is a no-op stub server-side for now.
+pullLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+pullLabel:SetPoint("TOPLEFT", onBtn, "BOTTOMLEFT", 2, -14)
+pullLabel:SetText("Pull:")
+pullLabel:SetTextColor(0.8, 0.8, 0.8)
+
+local PULL_SEG_W = 86
+for i = 0, 2 do
+    local seg = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    seg:SetSize(PULL_SEG_W, 24)
+    if i == 0 then
+        seg:SetPoint("LEFT", pullLabel, "RIGHT", 8, 0)
+    else
+        seg:SetPoint("LEFT", pullSegs[i - 1], "RIGHT", 2, 0)
+    end
+    seg:SetText(PullStates[i].seg)
+    seg:SetScript("OnClick", function()
+        SendDcCommand("pull", PullStates[i].cmd)
+    end)
+    pullSegs[i] = seg
+end
 
 -- Invisible click target over the tiny circle. Off -> start DC; running ->
 -- toggle pause/resume. Only shown in tiny mode (see UpdateLayout). Sits over
@@ -457,9 +480,74 @@ tinyToggle:SetScript("OnClick", function(self, button)
 end)
 tinyToggle:Hide()
 
+-- Tiny-mode advanced-pull control: a compact button right after the status circle
+-- (the on/pause control) that cycles Off -> On -> Dynamic. Label + accent color
+-- show the current state; only live while DC is on. Shown only in tiny mode.
+tinyPullBtn = CreateFrame("Button", "DungeonClearTinyPull", frame, "UIPanelButtonTemplate")
+tinyPullBtn:SetSize(34, 18)
+tinyPullBtn:SetPoint("LEFT", tinyIndicator, "RIGHT", 4, 0)
+tinyPullBtn:SetText("Off")
+-- The status text now follows the pull button (it sat directly after the circle).
+tinyText:ClearAllPoints()
+tinyText:SetPoint("LEFT", tinyPullBtn, "RIGHT", 6, 0)
+tinyPullBtn:SetScript("OnClick", function()
+    if not isDCOn then return end
+    local nextState = (pullSetting + 1) % 3
+    SendDcCommand("pull", PullStates[nextState].cmd)
+end)
+tinyPullBtn:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_TOP")
+    GameTooltip:AddLine("Advanced Pull")
+    GameTooltip:AddLine("Click to cycle: Off / On / Dynamic", 0.8, 0.8, 0.8, true)
+    GameTooltip:Show()
+end)
+tinyPullBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+tinyPullBtn:Hide()
+
+-- Style the full-mode segments + tiny cycle button to the current pull state.
+-- Active segment: locked highlight + accent text. Inactive: dim grey. All
+-- disabled (greyed) while DC is off, since pull only applies during a clear.
+UpdatePullControls = function()
+    for i = 0, 2 do
+        local seg = pullSegs[i]
+        if seg then
+            local fs = seg:GetFontString()
+            if not isDCOn then
+                seg:Disable()
+                seg:UnlockHighlight()
+                if fs then fs:SetTextColor(0.5, 0.5, 0.5) end
+            else
+                seg:Enable()
+                if i == pullSetting then
+                    seg:LockHighlight()
+                    if fs then fs:SetTextColor(unpack(PullStates[i].color)) end
+                else
+                    seg:UnlockHighlight()
+                    if fs then fs:SetTextColor(0.7, 0.7, 0.7) end
+                end
+            end
+        end
+    end
+
+    if tinyPullBtn then
+        local fs = tinyPullBtn:GetFontString()
+        if not isDCOn then
+            tinyPullBtn:Disable()
+            tinyPullBtn:SetText("Pull")
+            if fs then fs:SetTextColor(0.45, 0.45, 0.45) end
+        else
+            tinyPullBtn:Enable()
+            tinyPullBtn:SetText(PullStates[pullSetting].seg)
+            if fs then fs:SetTextColor(unpack(PullStates[pullSetting].color)) end
+        end
+        if DungeonClearDB.tinyMode then UpdateTinyWidth() end
+    end
+end
+
 -- Boss List Label
 local listLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-listLabel:SetPoint("TOPLEFT", pullBtn, "BOTTOMLEFT", 0, -12)
+-- Below the pull row: onBtn bottom, minus the 8px gap + 24px segment row + 12px.
+listLabel:SetPoint("TOPLEFT", onBtn, "BOTTOMLEFT", 0, -44)
 listLabel:SetText("Dungeon Bosses")
 listLabel:SetTextColor(0.24, 0.60, 1.0)
 
@@ -653,7 +741,8 @@ UpdateLayout = function()
         offBtn:Hide()
         skipBtn:Hide()
         if pauseBtn then pauseBtn:Hide() end
-        if pullBtn then pullBtn:Hide() end
+        if pullLabel then pullLabel:Hide() end
+        for i = 0, 2 do if pullSegs[i] then pullSegs[i]:Hide() end end
         listLabel:Hide()
         toggleBossesBtn:Hide()
         scrollContainer:Hide()
@@ -662,10 +751,12 @@ UpdateLayout = function()
         tinyIndicator:Show()
         tinyText:Show()
         if tinyToggle then tinyToggle:Show() end
+        if tinyPullBtn then tinyPullBtn:Show() end
     else
         tinyIndicator:Hide()
         tinyText:Hide()
         if tinyToggle then tinyToggle:Hide() end
+        if tinyPullBtn then tinyPullBtn:Hide() end
 
         header:Show()
         closeBtn:Show()
@@ -675,7 +766,8 @@ UpdateLayout = function()
         offBtn:Show()
         skipBtn:Show()
         if pauseBtn then pauseBtn:Show() end
-        if pullBtn then pullBtn:Show() end
+        if pullLabel then pullLabel:Show() end
+        for i = 0, 2 do if pullSegs[i] then pullSegs[i]:Show() end end
         listLabel:Show()
         toggleBossesBtn:Show()
         statusFrame:Show()
@@ -693,6 +785,7 @@ UpdateLayout = function()
 
         end
     end
+    if UpdatePullControls then UpdatePullControls() end
     UpdateFrameHeight()
 end
 
@@ -1009,8 +1102,10 @@ optCmdList:SetText(
     "|cffffd100On / Off|r  \226\128\148  Start or stop the autonomous clear.\n" ..
     "|cffffd100Skip|r  \226\128\148  Skip the current boss / objective and move to the next.\n" ..
     "|cffffd100Pause / Resume|r  \226\128\148  Hold the tank in place without ending the clear, then resume.\n" ..
-    "|cffffd100Adv. Pull|r  \226\128\148  Toggle LOS pull-to-camp: the tank runs in to grab a pack and drags it " ..
-    "back to where the party waits (passive) before everyone engages.\n" ..
+    "|cffffd100Pull: Off / On / Dynamic|r  \226\128\148  LOS pull-to-camp control. |cff33d94dOn|r: the tank runs " ..
+    "in to grab a pack and drags it back to where the party waits (passive) before everyone engages. " ..
+    "|cff4db3ffDynamic|r: let the bot decide when to pull (coming soon \226\128\148 currently behaves as Off). " ..
+    "|cff8c8c8cOff|r: walk up and fight in place.\n" ..
     "|cffffd100Go|r (per boss row)  \226\128\148  Send the tank straight to that boss (turns the clear on first).\n" ..
     "|cffffd100Tiny|r  \226\128\148  Collapse the window to a single-line, movable readout.\n" ..
     "|cffffd100Settings|r (sub-page)  \226\128\148  Override the server defaults (loot quality, engage ranges, " ..
