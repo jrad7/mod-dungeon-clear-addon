@@ -639,9 +639,10 @@ UpdatePullControls = function()
                 tinyPullDot:SetTexture("Interface\\FriendsFrame\\StatusIcon-Online") -- green
                 tinyPullDot:SetVertexColor(1, 1, 1)
             elseif pullSetting == 2 then
-                -- Solid blue circle for Dynamic: a filled disc tinted blue (the
-                -- Away clock icon read as a wait/timer, which made no sense here).
-                tinyPullDot:SetTexture("Interface\\Minimap\\UI-Minimap-Ping-Center")
+                -- Solid blue circle for Dynamic: the portrait alpha mask is a filled
+                -- white disc (tints cleanly to blue). The Away clock and the ping
+                -- ring both read wrong here; this is an actual filled circle.
+                tinyPullDot:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
                 tinyPullDot:SetVertexColor(0.30, 0.70, 1.00)
             else
                 tinyPullDot:SetTexture("Interface\\FriendsFrame\\StatusIcon-Offline")
