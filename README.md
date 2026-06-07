@@ -122,10 +122,12 @@ stays listed, tagged with its area (Orange / Purple / Pristine Waters).
 
 ### Tiny mode
 
-The **Tiny** button shrinks everything to one line — a status dot, the current
-activity, and the target boss. While tiny:
+The **Tiny** button shrinks everything to one line — a status dot, a pull-mode
+dot with its label, the current activity, and the target boss. While tiny:
 
-- **Left-click the dot** to start the clear, or pause/resume if it's running.
+- **Left-click the status dot** to start the clear, or pause/resume if running.
+- **Left-click the pull dot** to cycle the pull mode (Off → On → Dynamic). Its
+  colour and the label beside it (e.g. `Dyn: Leeroy`) track the live state.
 - **Right-click the bar** to expand back to the full window.
 - **Drag** to move it.
 

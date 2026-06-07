@@ -43,8 +43,10 @@ local UpdateFrameHeight, UpdateLayout
 local pauseBtn
 local pullLabel          -- "Pull:" caption left of the segmented control
 local pullSegs = {}      -- [0]=Off [1]=On [2]=Dynamic segment buttons (full mode)
-local tinyPullBtn        -- compact cycling pull button (tiny mode)
-local UpdatePullControls -- styles the segments + tiny button to the current state
+local tinyPullDot        -- compact cycling pull circle (tiny mode)
+local tinyPullToggle     -- invisible click target over the pull circle
+local tinyPullText       -- pull-state caption beside the pull circle
+local UpdatePullControls -- styles the segments + tiny circle to the current state
 local isDCOn = false
 local isPaused = false
 -- Advanced-pull preference mirrored from the server's tri-state STATUS field:
@@ -228,8 +230,10 @@ end
 
 -- Size the frame to hug the single-line content in tiny mode
 local function UpdateTinyWidth()
-    -- pad(10) + circle(16) + gap(4) + pull button(34) + gap(6) + text + pad(12)
-    local w = 10 + 16 + 4 + 34 + 6 + (tinyText:GetStringWidth() or 0) + 12
+    -- pad(10) + status circle(16) + gap(6) + pull circle(16) + gap(4)
+    -- + pull caption + gap(2) + action text + pad(12)
+    local w = 10 + 16 + 6 + 16 + 4 + (tinyPullText and tinyPullText:GetStringWidth() or 0)
+        + 2 + (tinyText:GetStringWidth() or 0) + 12
     frame:SetWidth(math.max(170, w))
 end
 
@@ -490,29 +494,51 @@ tinyToggle:SetScript("OnClick", function(self, button)
 end)
 tinyToggle:Hide()
 
--- Tiny-mode advanced-pull control: a compact button right after the status circle
--- (the on/pause control) that cycles Off -> On -> Dynamic. Label + accent color
--- show the current state; only live while DC is on. Shown only in tiny mode.
-tinyPullBtn = CreateFrame("Button", "DungeonClearTinyPull", frame, "UIPanelButtonTemplate")
-tinyPullBtn:SetSize(34, 18)
-tinyPullBtn:SetPoint("LEFT", tinyIndicator, "RIGHT", 4, 0)
-tinyPullBtn:SetText("Off")
--- The status text now follows the pull button (it sat directly after the circle).
+-- Tiny-mode advanced-pull control: a small colored circle right after the status
+-- (pause) circle that cycles Off -> On -> Dynamic, mirroring the pause dot. The
+-- live pull state reads out as a short caption beside it, capped with a grey "|"
+-- pipe that separates it from the action/boss line that follows.
+tinyPullDot = frame:CreateTexture(nil, "OVERLAY")
+tinyPullDot:SetSize(16, 16)
+tinyPullDot:SetPoint("LEFT", tinyIndicator, "RIGHT", 6, 0)
+-- Neutral circle, vertex-tinted per state by UpdatePullControls.
+tinyPullDot:SetTexture("Interface\\COMMON\\Indicator-Gray")
+
+tinyPullText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+tinyPullText:SetPoint("LEFT", tinyPullDot, "RIGHT", 4, 0)
+tinyPullText:SetText("Off")
+
+-- The action/boss status text now trails the pull caption.
 tinyText:ClearAllPoints()
-tinyText:SetPoint("LEFT", tinyPullBtn, "RIGHT", 6, 0)
-tinyPullBtn:SetScript("OnClick", function()
+tinyText:SetPoint("LEFT", tinyPullText, "RIGHT", 2, 0)
+
+-- Invisible click target over the pull circle: left-click cycles Off -> On ->
+-- Dynamic; right-click expands back to the full window (matching the other tiny
+-- controls). Only live while DC is on. Shown only in tiny mode.
+tinyPullToggle = CreateFrame("Button", "DungeonClearTinyPull", frame)
+tinyPullToggle:SetAllPoints(tinyPullDot)
+tinyPullToggle:EnableMouse(true)
+tinyPullToggle:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+tinyPullToggle:SetScript("OnClick", function(self, button)
+    if button == "RightButton" then
+        DungeonClearDB.tinyMode = false
+        UpdateLayout()
+        return
+    end
     if not isDCOn then return end
     local nextState = (pullSetting + 1) % 3
     SendDcCommand("pull", PullStates[nextState].cmd)
 end)
-tinyPullBtn:SetScript("OnEnter", function(self)
+tinyPullToggle:SetScript("OnEnter", function(self)
     GameTooltip:SetOwner(self, "ANCHOR_TOP")
     GameTooltip:AddLine("Advanced Pull")
     GameTooltip:AddLine("Click to cycle: Off / On / Dynamic", 0.8, 0.8, 0.8, true)
     GameTooltip:Show()
 end)
-tinyPullBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
-tinyPullBtn:Hide()
+tinyPullToggle:SetScript("OnLeave", function() GameTooltip:Hide() end)
+tinyPullDot:Hide()
+tinyPullText:Hide()
+tinyPullToggle:Hide()
 
 -- Style the full-mode segments + tiny cycle button to the current pull state.
 -- Active segment: locked highlight + accent text. Inactive: dim grey. All
@@ -551,23 +577,26 @@ UpdatePullControls = function()
         end
     end
 
-    if tinyPullBtn then
-        local fs = tinyPullBtn:GetFontString()
+    if tinyPullDot then
         if not isDCOn then
-            tinyPullBtn:Disable()
-            tinyPullBtn:SetText("Pull")
-            if fs then fs:SetTextColor(0.45, 0.45, 0.45) end
+            -- DC off: dim grey dot, greyed caption, no live state.
+            tinyPullDot:SetVertexColor(0.45, 0.45, 0.45)
+            if tinyPullText then tinyPullText:SetText("|cff707070Pull|r  |cff808080||r") end
+            if tinyPullToggle then tinyPullToggle:Disable() end
         else
-            tinyPullBtn:Enable()
-            -- In Dynamic, suffix the live verdict (e.g. "Dyn\194\183L") so the tiny
-            -- bar shows the auto choice without opening the full panel.
+            if tinyPullToggle then tinyPullToggle:Enable() end
+            -- The caption is the pull state; in Dynamic it appends the live verdict
+            -- (Leeroy / Advanced). The dot tints to the state/verdict accent, and a
+            -- grey "|" pipe caps the caption to divide it from the action line.
+            local label = PullStates[pullSetting].seg
+            local color = PullStates[pullSetting].color
             if verdict then
-                tinyPullBtn:SetText(PullStates[pullSetting].seg .. "\194\183" .. verdict.tiny)
-                fs = tinyPullBtn:GetFontString()
-                if fs then fs:SetTextColor(unpack(verdict.color)) end
-            else
-                tinyPullBtn:SetText(PullStates[pullSetting].seg)
-                if fs then fs:SetTextColor(unpack(PullStates[pullSetting].color)) end
+                label = label .. ": " .. verdict.full
+                color = verdict.color
+            end
+            tinyPullDot:SetVertexColor(unpack(color))
+            if tinyPullText then
+                tinyPullText:SetText("|cff" .. RgbToHex(color) .. label .. "|r  |cff808080||r")
             end
         end
         if DungeonClearDB.tinyMode then UpdateTinyWidth() end
@@ -781,12 +810,16 @@ UpdateLayout = function()
         tinyIndicator:Show()
         tinyText:Show()
         if tinyToggle then tinyToggle:Show() end
-        if tinyPullBtn then tinyPullBtn:Show() end
+        if tinyPullDot then tinyPullDot:Show() end
+        if tinyPullText then tinyPullText:Show() end
+        if tinyPullToggle then tinyPullToggle:Show() end
     else
         tinyIndicator:Hide()
         tinyText:Hide()
         if tinyToggle then tinyToggle:Hide() end
-        if tinyPullBtn then tinyPullBtn:Hide() end
+        if tinyPullDot then tinyPullDot:Hide() end
+        if tinyPullText then tinyPullText:Hide() end
+        if tinyPullToggle then tinyPullToggle:Hide() end
 
         header:Show()
         closeBtn:Show()
