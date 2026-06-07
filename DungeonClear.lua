@@ -505,6 +505,19 @@ tinyToggle:SetScript("OnClick", function(self, button)
         SendDcCommand("pause")
     end
 end)
+tinyToggle:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_TOP")
+    if not isDCOn then
+        GameTooltip:AddLine("Dungeon Clear")
+        GameTooltip:AddLine("Left-click to start the clear", 0.8, 0.8, 0.8, true)
+    else
+        GameTooltip:AddLine(isPaused and "Paused" or "Clearing")
+        GameTooltip:AddLine(isPaused and "Left-click to resume" or "Left-click to pause", 0.8, 0.8, 0.8, true)
+    end
+    GameTooltip:AddLine("Right-click to expand the window", 0.8, 0.8, 0.8, true)
+    GameTooltip:Show()
+end)
+tinyToggle:SetScript("OnLeave", function() GameTooltip:Hide() end)
 tinyToggle:Hide()
 
 -- Tiny-mode advanced-pull control: a small colored circle right after the status
@@ -607,13 +620,14 @@ UpdatePullControls = function()
         if not isDCOn then
             -- DC off: dark (offline) dot, greyed caption, no live state.
             tinyPullDot:SetTexture("Interface\\FriendsFrame\\StatusIcon-Offline")
+            tinyPullDot:SetVertexColor(1, 1, 1)
             if tinyPullText then tinyPullText:SetText("|cff707070Pull|r  |cff808080|||r") end
             if tinyPullToggle then tinyPullToggle:Disable() end
         else
             if tinyPullToggle then tinyPullToggle:Enable() end
             -- The caption is the pull state; in Dynamic it appends the live verdict
             -- (Leeroy / Advanced) and carries the precise accent colour. The dot is
-            -- a coarse 3-state indicator: dark = Off, green = On, amber = Dynamic.
+            -- a coarse 3-state indicator: dark = Off, green = On, blue = Dynamic.
             -- A grey "|" pipe caps the caption to divide it from the action line.
             local label = PullStates[pullSetting].seg
             local color = PullStates[pullSetting].color
@@ -621,13 +635,18 @@ UpdatePullControls = function()
                 label = label .. ": " .. verdict.full
                 color = verdict.color
             end
-            local dotTex = "Interface\\FriendsFrame\\StatusIcon-Offline"
             if pullSetting == 1 then
-                dotTex = "Interface\\FriendsFrame\\StatusIcon-Online"   -- green
+                tinyPullDot:SetTexture("Interface\\FriendsFrame\\StatusIcon-Online") -- green
+                tinyPullDot:SetVertexColor(1, 1, 1)
             elseif pullSetting == 2 then
-                dotTex = "Interface\\FriendsFrame\\StatusIcon-Away"     -- amber
+                -- Solid blue circle for Dynamic: a filled disc tinted blue (the
+                -- Away clock icon read as a wait/timer, which made no sense here).
+                tinyPullDot:SetTexture("Interface\\Minimap\\UI-Minimap-Ping-Center")
+                tinyPullDot:SetVertexColor(0.30, 0.70, 1.00)
+            else
+                tinyPullDot:SetTexture("Interface\\FriendsFrame\\StatusIcon-Offline")
+                tinyPullDot:SetVertexColor(1, 1, 1)
             end
-            tinyPullDot:SetTexture(dotTex)
             if tinyPullText then
                 tinyPullText:SetText("|cff" .. RgbToHex(color) .. label .. "|r  |cff808080|||r")
             end
