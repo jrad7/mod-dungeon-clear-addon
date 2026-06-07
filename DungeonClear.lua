@@ -41,8 +41,10 @@ local function GetInstanceKey()
 end
 local UpdateFrameHeight, UpdateLayout
 local pauseBtn
+local pullBtn
 local isDCOn = false
 local isPaused = false
+local isPullOn = false
 
 -- Settings panel (Interface -> AddOns -> DungeonClear -> Settings). These are
 -- forward-declared so OnAddonMessage / ADDON_LOADED (defined above the panel
@@ -184,6 +186,7 @@ local tinyToggle
 -- Compact state -> (label, color) for the tiny line
 local function FormatStateTiny(state)
     if state == "paused" then return "Paused", {0.9, 0.8, 0.2}
+    elseif state == "pulling" then return "Pulling to Camp", {0.3, 0.8, 1}
     elseif state == "moving" then return "Advancing", {0.2, 0.7, 1}
     elseif state == "pathing" then return "Plotting Route", {0.4, 0.7, 0.9}
     elseif state == "pursuing" then return "Closing In", {0.3, 0.8, 1}
@@ -210,8 +213,9 @@ local function UpdateTinyWidth()
 end
 
 -- Helper to update status styling
-local function UpdateStatusUI(enabled, targetName, state, stallReason, detail)
+local function UpdateStatusUI(enabled, targetName, state, stallReason, detail, pullMode)
     isPaused = (state == "paused")
+    isPullOn = (pullMode == "1")
     if not enabled or enabled == "0" then
         isDCOn = false
         isPaused = false
@@ -245,6 +249,9 @@ local function UpdateStatusUI(enabled, targetName, state, stallReason, detail)
             local reason = (detail and detail ~= "") and detail or "holding position"
             stateText = "Paused (" .. reason .. ")"
             stateColor = {0.9, 0.8, 0.2} -- Yellow
+        elseif state == "pulling" then
+            stateText = "Advanced Pull"
+            stateColor = {0.3, 0.8, 1} -- Light blue
         elseif state == "moving" then
             stateText = "Advancing"
             stateColor = {0.2, 0.7, 1} -- Light blue
@@ -339,6 +346,16 @@ local function UpdateStatusUI(enabled, targetName, state, stallReason, detail)
             pauseBtn:Enable()
         end
     end
+    -- Advanced-pull toggle: label shows whether the mode is on; disabled when off.
+    if pullBtn then
+        if not isDCOn then
+            pullBtn:SetText("Adv. Pull: --")
+            pullBtn:Disable()
+        else
+            pullBtn:SetText(isPullOn and "Adv. Pull: ON" or "Adv. Pull: OFF")
+            pullBtn:Enable()
+        end
+    end
 
     if DungeonClearDB.tinyMode then
         UpdateTinyWidth()
@@ -407,6 +424,15 @@ pauseBtn:SetPoint("LEFT", skipBtn, "RIGHT", 11, 0)
 pauseBtn:SetText("Pause")
 pauseBtn:SetScript("OnClick", function() SendDcCommand("pause") end)
 
+-- Advanced-pull toggle on its own row below the action buttons. Label + enabled
+-- state are driven by UpdateStatusUI; the server toggles pull mode off the bare
+-- "pull" subcommand.
+pullBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+pullBtn:SetSize(305, 24)
+pullBtn:SetPoint("TOPLEFT", onBtn, "BOTTOMLEFT", 0, -8)
+pullBtn:SetText("Adv. Pull: OFF")
+pullBtn:SetScript("OnClick", function() SendDcCommand("pull") end)
+
 -- Invisible click target over the tiny circle. Off -> start DC; running ->
 -- toggle pause/resume. Only shown in tiny mode (see UpdateLayout). Sits over
 -- just the 16x16 dot so dragging the rest of the bar still works.
@@ -433,7 +459,7 @@ tinyToggle:Hide()
 
 -- Boss List Label
 local listLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-listLabel:SetPoint("TOPLEFT", onBtn, "BOTTOMLEFT", 0, -12)
+listLabel:SetPoint("TOPLEFT", pullBtn, "BOTTOMLEFT", 0, -12)
 listLabel:SetText("Dungeon Bosses")
 listLabel:SetTextColor(0.24, 0.60, 1.0)
 
@@ -608,10 +634,11 @@ UpdateFrameHeight = function()
         UpdateTinyWidth()
     else
         frame:SetWidth(330)
+        -- +32 for the advanced-pull button row (24px button + 8px gap).
         if DungeonClearDB.bossesFolded then
-            frame:SetHeight(hasStall and 236 or 216)
+            frame:SetHeight(hasStall and 268 or 248)
         else
-            frame:SetHeight(hasStall and 466 or 446)
+            frame:SetHeight(hasStall and 498 or 478)
         end
     end
 end
@@ -626,6 +653,7 @@ UpdateLayout = function()
         offBtn:Hide()
         skipBtn:Hide()
         if pauseBtn then pauseBtn:Hide() end
+        if pullBtn then pullBtn:Hide() end
         listLabel:Hide()
         toggleBossesBtn:Hide()
         scrollContainer:Hide()
@@ -647,6 +675,7 @@ UpdateLayout = function()
         offBtn:Show()
         skipBtn:Show()
         if pauseBtn then pauseBtn:Show() end
+        if pullBtn then pullBtn:Show() end
         listLabel:Show()
         toggleBossesBtn:Show()
         statusFrame:Show()
@@ -759,12 +788,15 @@ local function OnAddonMessage(prefix, message, channel, sender)
         local skippedCount = parts[6]
         local state = parts[7]
         local detail = parts[8]
+        -- Trailing field (index 9): advanced-pull toggle ("1"/"0"). Older servers
+        -- omit it; nil reads as off.
+        local pullMode = parts[9]
 
         if nextBossName == "None" then nextBossName = nil end
         if stallReason == "" then stallReason = nil end
         if detail == "" then detail = nil end
 
-        UpdateStatusUI(enabled, nextBossName, state, stallReason, detail)
+        UpdateStatusUI(enabled, nextBossName, state, stallReason, detail, pullMode)
     elseif parts[1] == "BOSS_START" then
         -- Stage into pendingBosses; the live list is untouched until BOSS_END
         -- so a response that turns out empty (or never finalizes) can't blank
@@ -977,6 +1009,8 @@ optCmdList:SetText(
     "|cffffd100On / Off|r  \226\128\148  Start or stop the autonomous clear.\n" ..
     "|cffffd100Skip|r  \226\128\148  Skip the current boss / objective and move to the next.\n" ..
     "|cffffd100Pause / Resume|r  \226\128\148  Hold the tank in place without ending the clear, then resume.\n" ..
+    "|cffffd100Adv. Pull|r  \226\128\148  Toggle LOS pull-to-camp: the tank runs in to grab a pack and drags it " ..
+    "back to where the party waits (passive) before everyone engages.\n" ..
     "|cffffd100Go|r (per boss row)  \226\128\148  Send the tank straight to that boss (turns the clear on first).\n" ..
     "|cffffd100Tiny|r  \226\128\148  Collapse the window to a single-line, movable readout.\n" ..
     "|cffffd100Settings|r (sub-page)  \226\128\148  Override the server defaults (loot quality, engage ranges, " ..
