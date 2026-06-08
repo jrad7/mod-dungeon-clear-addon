@@ -541,7 +541,9 @@ tinyText:SetPoint("LEFT", tinyPullText, "RIGHT", 2, 0)
 
 -- Invisible click target over the pull circle: left-click cycles Off -> On ->
 -- Dynamic; right-click expands back to the full window (matching the other tiny
--- controls). Only live while DC is on. Shown only in tiny mode.
+-- controls). Live whether or not DC is running -- the pull mode is a preference
+-- the server stores and applies on the next `dc on`, so it is settable ahead of
+-- the run. Shown only in tiny mode.
 tinyPullToggle = CreateFrame("Button", "DungeonClearTinyPull", frame)
 tinyPullToggle:SetAllPoints(tinyPullDot)
 tinyPullToggle:EnableMouse(true)
@@ -552,7 +554,6 @@ tinyPullToggle:SetScript("OnClick", function(self, button)
         UpdateLayout()
         return
     end
-    if not isDCOn then return end
     local nextState = (pullSetting + 1) % 3
     SendDcCommand("pull", PullStates[nextState].cmd)
 end)
@@ -568,8 +569,11 @@ tinyPullText:Hide()
 tinyPullToggle:Hide()
 
 -- Style the full-mode segments + tiny cycle button to the current pull state.
--- Active segment: locked highlight + accent text. Inactive: dim grey. All
--- disabled (greyed) while DC is off, since pull only applies during a clear.
+-- Active segment: locked highlight + accent text. Inactive: dim grey. The
+-- controls stay clickable while DC is off: the pull mode is a preference the
+-- server stores and applies on the next `dc on`, so it is configurable ahead of
+-- the run. While off we still surface the chosen state, just dimmed to read as
+-- "pending" rather than live.
 UpdatePullControls = function()
     -- Live verdict shown only while Dynamic is the active state and DC is on.
     local verdict = (isDCOn and pullSetting == 2) and DynVerdicts[pullDecision] or nil
@@ -598,65 +602,66 @@ UpdatePullControls = function()
             -- active state and its live verdict are surfaced in the Pull Mode
             -- readout above instead.
             seg:SetText(PullStates[i].seg)
-            if not isDCOn then
-                seg:Disable()
-                seg:UnlockHighlight()
-                if fs then fs:SetTextColor(0.5, 0.5, 0.5) end
-            else
-                seg:Enable()
-                if i == pullSetting then
-                    seg:LockHighlight()
-                    -- Active Dyn segment tints to the verdict colour (amber Leeroy /
-                    -- blue Advanced) so the live choice reads at a glance.
-                    if fs then fs:SetTextColor(unpack((i == 2 and verdict) and verdict.color or PullStates[i].color)) end
-                else
-                    seg:UnlockHighlight()
-                    if fs then fs:SetTextColor(0.7, 0.7, 0.7) end
+            -- Always clickable: the pull mode is settable before the run starts.
+            seg:Enable()
+            if i == pullSetting then
+                seg:LockHighlight()
+                -- Active Dyn segment tints to the verdict colour (amber Leeroy /
+                -- blue Advanced) so the live choice reads at a glance. While DC
+                -- is off the choice is a pending preference, so dim the accent.
+                local accent = (i == 2 and verdict) and verdict.color or PullStates[i].color
+                if fs then
+                    if isDCOn then
+                        fs:SetTextColor(unpack(accent))
+                    else
+                        fs:SetTextColor(accent[1] * 0.6, accent[2] * 0.6, accent[3] * 0.6)
+                    end
                 end
+            else
+                seg:UnlockHighlight()
+                if fs then fs:SetTextColor(0.7, 0.7, 0.7) end
             end
         end
     end
 
     if tinyPullDot then
-        if not isDCOn then
-            -- DC off: dark (offline) dot, greyed caption, no live state.
+        -- Always clickable: the pull mode is settable before the run starts.
+        if tinyPullToggle then tinyPullToggle:Enable() end
+        -- The caption is the pull state; in Dynamic with DC on it appends the live
+        -- verdict (Leeroy / Advanced) and carries the precise accent colour. The
+        -- dot is a coarse 3-state indicator: dark = Off, green = On, blue =
+        -- Dynamic. A grey "|" pipe caps the caption to divide it from the action
+        -- line. While DC is off the state is a pending preference, so a dim factor
+        -- darkens both the dot and caption to read as "set, not yet running".
+        local label = PullStates[pullSetting].seg
+        local color = PullStates[pullSetting].color
+        if verdict then
+            label = label .. ": " .. verdict.full
+            color = verdict.color
+        end
+        local dim = isDCOn and 1.0 or 0.6
+        if pullSetting == 1 then
+            tinyPullDot:SetTexture("Interface\\FriendsFrame\\StatusIcon-Online") -- green
+            tinyPullDot:SetTexCoord(0, 1, 0, 1)
+            tinyPullDot:SetVertexColor(dim, dim, dim)
+        elseif pullSetting == 2 then
+            -- Solid blue circle for Dynamic: the portrait alpha mask is a filled
+            -- white disc (tints cleanly to blue). It fills its frame edge to edge,
+            -- so pad it with an over-range texcoord (clamps to transparent) to
+            -- match the inset of the StatusIcon dots; otherwise it reads oversized.
+            tinyPullDot:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
+            tinyPullDot:SetTexCoord(-0.35, 1.35, -0.35, 1.35)
+            tinyPullDot:SetVertexColor(0.30 * dim, 0.70 * dim, 1.00 * dim)
+        else
             tinyPullDot:SetTexture("Interface\\FriendsFrame\\StatusIcon-Offline")
             tinyPullDot:SetTexCoord(0, 1, 0, 1)
-            tinyPullDot:SetVertexColor(1, 1, 1)
-            if tinyPullText then tinyPullText:SetText("|cff707070Pull|r |cff808080|||r") end
-            if tinyPullToggle then tinyPullToggle:Disable() end
-        else
-            if tinyPullToggle then tinyPullToggle:Enable() end
-            -- The caption is the pull state; in Dynamic it appends the live verdict
-            -- (Leeroy / Advanced) and carries the precise accent colour. The dot is
-            -- a coarse 3-state indicator: dark = Off, green = On, blue = Dynamic.
-            -- A grey "|" pipe caps the caption to divide it from the action line.
-            local label = PullStates[pullSetting].seg
-            local color = PullStates[pullSetting].color
-            if verdict then
-                label = label .. ": " .. verdict.full
-                color = verdict.color
-            end
-            if pullSetting == 1 then
-                tinyPullDot:SetTexture("Interface\\FriendsFrame\\StatusIcon-Online") -- green
-                tinyPullDot:SetTexCoord(0, 1, 0, 1)
-                tinyPullDot:SetVertexColor(1, 1, 1)
-            elseif pullSetting == 2 then
-                -- Solid blue circle for Dynamic: the portrait alpha mask is a filled
-                -- white disc (tints cleanly to blue). It fills its frame edge to edge,
-                -- so pad it with an over-range texcoord (clamps to transparent) to
-                -- match the inset of the StatusIcon dots; otherwise it reads oversized.
-                tinyPullDot:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
-                tinyPullDot:SetTexCoord(-0.35, 1.35, -0.35, 1.35)
-                tinyPullDot:SetVertexColor(0.30, 0.70, 1.00)
-            else
-                tinyPullDot:SetTexture("Interface\\FriendsFrame\\StatusIcon-Offline")
-                tinyPullDot:SetTexCoord(0, 1, 0, 1)
-                tinyPullDot:SetVertexColor(1, 1, 1)
-            end
-            if tinyPullText then
-                tinyPullText:SetText("|cff" .. RgbToHex(color) .. label .. "|r |cff808080|||r")
-            end
+            tinyPullDot:SetVertexColor(dim, dim, dim)
+        end
+        if not isDCOn then
+            color = {color[1] * dim, color[2] * dim, color[3] * dim}
+        end
+        if tinyPullText then
+            tinyPullText:SetText("|cff" .. RgbToHex(color) .. label .. "|r |cff808080|||r")
         end
         if DungeonClearDB.tinyMode then UpdateTinyWidth() end
     end

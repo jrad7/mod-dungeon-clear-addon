@@ -95,7 +95,12 @@ a camp-setup, a tag, and a drag-back. Switch to **Advanced** only in the specifi
 spots where Leeroy is failing — packs big or tightly stacked enough to wipe the
 party in place. **Dynamic** is the middle ground: it Leeroys by default and only
 pays the Advanced cost on packs that need it. The status line shows which choice
-Dynamic made for the current pack. Pull mode is per-run and resets when you stop.
+Dynamic made for the current pack.
+
+You can set the pull mode **before** starting the clear — pick it and it takes
+effect the moment you press **On**. While the clear is stopped the control is dimmed
+to show the choice is pending rather than live. Pull mode is per-run and resets to
+Leeroy when you stop.
 
 ### Reading the status
 
