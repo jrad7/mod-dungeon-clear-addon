@@ -1285,7 +1285,7 @@ local SettingMeta = {
                              desc = "Health the party eats up to between pulls, overriding the server's AiPlayerbot.AlmostFullHealth for this run. 0 = use the server default." },
     RestManaPct          = { label = "Rest Mana %",
                              desc = "Mana the party drinks up to between pulls, overriding the server's AiPlayerbot.HighMana for this run. 0 = use the server default." },
-    PullDynamicMaxLeeroyMobs = { label = "Pull: Max Leeroy Mobs",
+    PullDynamicMaxLeeroyMobs = { label = "Desired maximum mobs per pull",
                              desc = "Dynamic pull only. The party's comfortable simultaneous-mob ceiling: the tank Leeroys a pack at or under this estimated aggro count, and pulls one above it back to camp." },
     PullDynamicPartyLag  = { label = "Pull: Party Lag (yd)",
                              desc = "Dynamic pull only. How far back the party trails while the tank scouts the next pack, so it reaches aggro range alone to decide Leeroy vs pull." },
@@ -1308,13 +1308,6 @@ local VisibleSettings = {
     PullDynamicPartyLag      = true,
 }
 
--- Numeric settings that read better as a typed value than a dragged slider —
--- e.g. an exact rest %. Rendered as an EditBox (digits only, clamped to the
--- setting's min/max on commit) instead of the default slider.
-local TextBoxSettings = {
-    RestHealthPct = true,
-    RestManaPct   = true,
-}
 
 -- WoW item-quality id -> display name + color (used by the Minimum Loot Quality
 -- dropdown). Mirrors the client's ITEM_QUALITY_COLORS / ITEM_QUALITYn_DESC but
@@ -1421,7 +1414,6 @@ setScroll:SetScrollChild(setContent)
 local function ControlGroup(row)
     if row.stype == DCT_BOOL then return 1 end
     if row.isQuality then return 2 end
-    if row.isTextBox then return 3 end
     return 4  -- slider
 end
 
@@ -1448,7 +1440,9 @@ local function RelayoutSettings()
             row:SetPoint("TOPLEFT", setContent, "TOPLEFT", 6, y)
             row:SetPoint("RIGHT", setContent, "RIGHT", -6, 0)
             row:Show()
-            y = y - 52
+            -- Sliders carry min/max sublabels under the track, so they need extra
+            -- room before the next row's title; other controls don't.
+            y = y - (row.isSlider and 66 or 52)
         end
     end
     setContent:SetHeight(math.max(10, -y + 6))
@@ -1527,33 +1521,6 @@ local function CreateSettingRow(key, stype)
         end)
         row.control = dd
         row.isQuality = true
-    elseif TextBoxSettings[key] then
-        -- Typed numeric entry: digits only, clamped to [min,max] on commit.
-        local eb = CreateFrame("EditBox", "DungeonClearEdit_" .. key, row, "InputBoxTemplate")
-        eb:SetAutoFocus(false)
-        eb:SetNumeric(true)
-        eb:SetMaxLetters(3)
-        eb:SetSize(48, 20)
-        eb:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 14, 2)
-        local suffix = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        suffix:SetPoint("LEFT", eb, "RIGHT", 6, 0)
-        suffix:SetText("%")
-        suffix:SetTextColor(1, 0.82, 0)
-        local function Commit(self)
-            local v = tonumber(self:GetText()) or (row.minV or 0)
-            local lo, hi = row.minV or 0, row.maxV or 100
-            if v < lo then v = lo elseif v > hi then v = hi end
-            v = math.floor(v + 0.5)
-            self:SetText(tostring(v))
-            if row.updating then return end
-            DungeonClearDB.settings[key] = v
-            row.defBtn:Show()
-            SendDcCommand("set", key .. "\t" .. v, true)
-        end
-        eb:SetScript("OnEnterPressed", function(self) Commit(self); self:ClearFocus() end)
-        eb:SetScript("OnEditFocusLost", Commit)
-        row.control = eb
-        row.isTextBox = true
     else
         local s = CreateFrame("Slider", "DungeonClearSlider_" .. key, row, "OptionsSliderTemplate")
         s:SetWidth(300)
@@ -1563,6 +1530,7 @@ local function CreateSettingRow(key, stype)
         row.valText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         row.valText:SetPoint("LEFT", s, "RIGHT", 14, 0)
         row.valText:SetTextColor(1, 0.82, 0)
+        row.isSlider = true
         s:SetScript("OnValueChanged", function(self, value)
             value = RoundVal(stype, value)
             row.valText:SetText(FmtVal(stype, value))
@@ -1606,9 +1574,6 @@ local function UpsertSetting(key, value, minV, maxV, stype, overridden)
         if v < 0 then v = 0 elseif v > 6 then v = 6 end
         UIDropDownMenu_SetSelectedValue(row.control, v)
         UIDropDownMenu_SetText(row.control, QualityText(v))
-    elseif row.isTextBox then
-        row.minV, row.maxV = minV, maxV
-        row.control:SetText(tostring(math.floor(value + 0.5)))
     else
         row.control:SetMinMaxValues(minV, maxV)
         row.control:SetValueStep(StepFor(stype))
@@ -1684,14 +1649,18 @@ BuildSettingsFromCache = function()
     RelayoutSettings()
 end
 
--- Pull fresh effective values + schema whenever the panel is shown. Sent on the
--- silent "addon" param; a missing tank bot no longer reaches chat, so there's
--- nothing to suppress.
-local function RequestSettingsSync()
+-- Refresh whenever the panel is shown. First re-render every row from the cached
+-- schema NOW that the panel is visible: InputBoxTemplate EditBoxes (the Rest %
+-- fields) don't reliably display text set while their parent is hidden, so the
+-- ADDON_LOADED population can leave them blank until re-applied on show. Then ask
+-- the server for live effective values (silent "addon" param; a missing tank bot
+-- no longer reaches chat, so there's nothing to suppress).
+local function RefreshSettings()
+    if BuildSettingsFromCache then BuildSettingsFromCache() end
     SendDcCommand("sync", "addon")
 end
-settingsPanel.refresh = RequestSettingsSync
-settingsPanel:SetScript("OnShow", RequestSettingsSync)
+settingsPanel.refresh = RefreshSettings
+settingsPanel:SetScript("OnShow", RefreshSettings)
 
 InterfaceOptions_AddCategory(settingsPanel)
 
