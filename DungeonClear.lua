@@ -1241,8 +1241,8 @@ optCmdList:SetText(
     "|cff8c8c8cOff|r: walk up and fight in place.\n" ..
     "|cffffd100Go|r (per boss row)  \226\128\148  Send the tank straight to that boss (turns the clear on first).\n" ..
     "|cffffd100Tiny|r  \226\128\148  Collapse the window to a single-line, movable readout.\n" ..
-    "|cffffd100Settings|r (sub-page)  \226\128\148  Override the server defaults (loot quality, engage ranges, " ..
-    "party spread, …) for your own runs. Saved per character and re-applied each run.")
+    "|cffffd100Settings|r (sub-page)  \226\128\148  Override the server defaults (loot quality, rest %, " ..
+    "party spread, pull tuning, …) for your own runs. Saved per character and re-applied each run.")
 
 local openBtn = CreateFrame("Button", nil, optionsPanel, "UIPanelButtonTemplate")
 openBtn:SetSize(160, 24)
@@ -1271,10 +1271,10 @@ InterfaceOptions_AddCategory(optionsPanel)
 -- Friendly labels + tooltips. Optional decoration only: any key missing here
 -- still renders, falling back to the raw key as its label.
 local SettingMeta = {
-    DynamicAggroRange    = { label = "Dynamic Aggro Range",
-                             desc = "Size engage/trash bands from each creature's real aggro range instead of fixed distances." },
     PreventBotRelease    = { label = "Prevent Bot Release",
                              desc = "Dead bots stay as a corpse to be resurrected instead of releasing to the graveyard." },
+    CombatRegroup        = { label = "Combat Regroup",
+                             desc = "Keep followers grouped on the tank during a fight, not just on the route — a healer that drifts out of line of sight closes back in." },
     PartyMaxSpread       = { label = "Party Max Spread (yd)",
                              desc = "How far the tank may lead the party before it holds to let everyone catch up." },
     LootMinQuality       = { label = "Minimum Loot Quality",
@@ -1285,18 +1285,27 @@ local SettingMeta = {
                              desc = "Health the party eats up to between pulls, overriding the server's AiPlayerbot.AlmostFullHealth for this run. 0 = use the server default." },
     RestManaPct          = { label = "Rest Mana %",
                              desc = "Mana the party drinks up to between pulls, overriding the server's AiPlayerbot.HighMana for this run. 0 = use the server default." },
+    PullDynamicMaxLeeroyMobs = { label = "Pull: Max Leeroy Mobs",
+                             desc = "Dynamic pull only. The party's comfortable simultaneous-mob ceiling: the tank Leeroys a pack at or under this estimated aggro count, and pulls one above it back to camp." },
+    PullDynamicPartyLag  = { label = "Pull: Party Lag (yd)",
+                             desc = "Dynamic pull only. How far back the party trails while the tank scouts the next pack, so it reaches aggro range alone to decide Leeroy vs pull." },
 }
 
--- Settings the server still streams (and the conf file still tunes) but that we
--- deliberately keep out of the player-facing panel: advanced engage/scan tuning
--- that's better left at the server default. UpsertSetting drops these so a live
--- sync can't recreate a row for them.
-local HiddenSettings = {
-    AggroRangeMargin     = true,
-    BossEngageRangeFloor = true,
-    BossEngageRangeCap   = true,
-    TrashWidthFloor      = true,
-    TrashWidthCap        = true,
+-- The only settings exposed in the player-facing panel. The server streams many
+-- more (and the conf file still tunes them all), but the rest are advanced
+-- pathfinding/engage/pull-geometry knobs better left at the server default, so we
+-- allowlist exactly the player-relevant ones here. UpsertSetting drops anything
+-- not listed, so a live sync can't recreate a row for a setting we don't want.
+local VisibleSettings = {
+    PreventBotRelease        = true,
+    IgnoreChests             = true,
+    CombatRegroup            = true,
+    LootMinQuality           = true,
+    RestHealthPct            = true,
+    RestManaPct              = true,
+    PartyMaxSpread           = true,
+    PullDynamicMaxLeeroyMobs = true,
+    PullDynamicPartyLag      = true,
 }
 
 -- Numeric settings that read better as a typed value than a dragged slider —
@@ -1334,18 +1343,20 @@ local DCT_BOOL, DCT_UINT, DCT_INT, DCT_FLOAT = 0, 1, 2, 3
 -- not listed here, so the panel still auto-extends when the server gains a
 -- setting; this table only needs touching to give a new setting nicer defaults.
 local DefaultSchema = {
-    DynamicAggroRange    = { type = DCT_BOOL,  min = 0,  max = 1,  default = 1 },
-    PreventBotRelease    = { type = DCT_BOOL,  min = 0,  max = 1,  default = 1 },
-    PartyMaxSpread       = { type = DCT_FLOAT, min = 10, max = 60, default = 25 },
-    LootMinQuality       = { type = DCT_UINT,  min = 0,  max = 6,  default = 0 },
-    IgnoreChests         = { type = DCT_BOOL,  min = 0,  max = 1,  default = 1 },
-    RestHealthPct        = { type = DCT_UINT,  min = 0,  max = 100, default = 0 },
-    RestManaPct          = { type = DCT_UINT,  min = 0,  max = 100, default = 0 },
+    PreventBotRelease        = { type = DCT_BOOL,  min = 0,  max = 1,  default = 1 },
+    IgnoreChests             = { type = DCT_BOOL,  min = 0,  max = 1,  default = 1 },
+    CombatRegroup            = { type = DCT_BOOL,  min = 0,  max = 1,  default = 1 },
+    LootMinQuality           = { type = DCT_UINT,  min = 0,  max = 6,  default = 0 },
+    RestHealthPct            = { type = DCT_UINT,  min = 0,  max = 100, default = 0 },
+    RestManaPct              = { type = DCT_UINT,  min = 0,  max = 100, default = 0 },
+    PartyMaxSpread           = { type = DCT_FLOAT, min = 10, max = 60, default = 25 },
+    PullDynamicMaxLeeroyMobs = { type = DCT_UINT,  min = 1,  max = 20, default = 5 },
+    PullDynamicPartyLag      = { type = DCT_FLOAT, min = 6,  max = 40, default = 15 },
 }
 local DefaultSchemaOrder = {
-    "DynamicAggroRange", "PreventBotRelease",
-    "PartyMaxSpread", "LootMinQuality", "IgnoreChests",
-    "RestHealthPct", "RestManaPct",
+    "PreventBotRelease", "IgnoreChests", "CombatRegroup",
+    "LootMinQuality", "RestHealthPct", "RestManaPct",
+    "PartyMaxSpread", "PullDynamicMaxLeeroyMobs", "PullDynamicPartyLag",
 }
 
 local settingRows = {}     -- key -> row frame
@@ -1568,9 +1579,9 @@ end
 
 -- Create-or-update the row for one setting from a SETTINGS line / cache entry.
 local function UpsertSetting(key, value, minV, maxV, stype, overridden)
-    -- Drop settings we deliberately keep out of the panel, even if the server
-    -- still streams them in a live sync.
-    if HiddenSettings[key] then return end
+    -- Show only the allowlisted player-facing settings, even if the server
+    -- streams others in a live sync.
+    if not VisibleSettings[key] then return end
 
     -- Cache the schema so the panel can render before any sync (e.g. at login).
     if not DungeonClearDB.schema[key] then
