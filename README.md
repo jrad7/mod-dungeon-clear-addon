@@ -1,5 +1,13 @@
 # DungeonClear
 
+> ## ⚠️ The AddOns folder **must** be named `DungeonClear`
+>
+> Cloning or downloading this repo gives you a folder named
+> `mod-dungeon-clear-addon`. The client will **not** load it under that name —
+> the folder inside `Interface/AddOns/` has to be exactly `DungeonClear` (with
+> `DungeonClear.toc` and `DungeonClear.lua` directly inside it). Rename it after
+> copying. See [Installation](#installation) below.
+
 A simple in-game panel for **World of Warcraft 3.3.5a** that lets you send a
 party's bot tank through a dungeon and watch its progress, instead of typing
 chat commands.
