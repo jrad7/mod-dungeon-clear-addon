@@ -50,8 +50,9 @@ local UpdatePullControls -- styles the segments + tiny circle to the current sta
 local isDCOn = false
 local isPaused = false
 -- Advanced-pull preference mirrored from the server's tri-state STATUS field:
--- 0 = Off, 1 = On, 2 = Dynamic.
-local pullSetting = 0
+-- 0 = Off, 1 = On, 2 = Dynamic. Initialized to the server's default (Dynamic)
+-- so the pre-STATUS display matches; the first STATUS overwrites it anyway.
+local pullSetting = 2
 -- Live Dynamic verdict for the pack the tank is sizing up (server STATUS index
 -- 10): 0 none / 1 Leeroy / 2 Advanced. Only meaningful while pullSetting == 2.
 local pullDecision = 0
@@ -156,7 +157,7 @@ pullModeLabel:SetTextColor(0.8, 0.8, 0.8)
 
 local pullModeVal = statusFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 pullModeVal:SetPoint("LEFT", pullModeLabel, "RIGHT", 5, 0)
-pullModeVal:SetText("Off")
+pullModeVal:SetText("Dynamic")
 pullModeVal:SetTextColor(0.6, 0.6, 0.6)
 
 local stateLabel = statusFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -253,8 +254,8 @@ end
 -- Helper to update status styling
 local function UpdateStatusUI(enabled, targetName, state, stallReason, detail, pullMode, pullDec)
     isPaused = (state == "paused")
-    pullSetting = tonumber(pullMode) or 0
-    if not PullStates[pullSetting] then pullSetting = 0 end
+    pullSetting = tonumber(pullMode) or 2
+    if not PullStates[pullSetting] then pullSetting = 2 end
     pullDecision = tonumber(pullDec) or 0
     if not enabled or enabled == "0" then
         isDCOn = false

@@ -84,23 +84,22 @@ each boss:
 
 | Mode | Behaviour |
 |---|---|
-| **Leeroy** *(default, pull off)* | Walk straight into each pack and fight it in place. Fast. |
+| **Dynamic** *(default)* | Decide per pack — Leeroy a lone pack, Advanced-pull a clustered or oversized one. |
+| **Leeroy** *(pull off)* | Walk straight into each pack and fight it in place. Fast, but no safety margin. |
 | **Advanced** *(pull on)* | Pull every pack back to a held camp before fighting it. Careful, but slow. |
-| **Dynamic** | Decide per pack — Leeroy a lone pack, Advanced-pull a clustered or oversized one. |
 
-**Leave it on Leeroy for almost every dungeon.** It's the default and keeps the
-clear moving at full speed; the tank and party handle ordinary trash fine fighting
-in place. **Advanced and Dynamic make a run much slower**, because every pull adds
-a camp-setup, a tag, and a drag-back. Switch to **Advanced** only in the specific
-spots where Leeroy is failing — packs big or tightly stacked enough to wipe the
-party in place. **Dynamic** is the middle ground: it Leeroys by default and only
-pays the Advanced cost on packs that need it. The status line shows which choice
-Dynamic made for the current pack.
+**Leave it on Dynamic for almost every dungeon.** It's the default: it Leeroys the
+easy packs at full speed and only pays the camp-setup/tag/drag-back cost on the
+packs that need it — the big or tightly stacked ones that would wipe the party
+fought in place. The status line shows which choice Dynamic made for the current
+pack. Drop to pure **Leeroy** in easy content you out-gear (every pull is fast,
+nothing is staged), or force **Advanced** in hard content and raids where every
+pack should be taken one controlled group at a time.
 
 You can set the pull mode **before** starting the clear — pick it and it takes
 effect the moment you press **On**. While the clear is stopped the control is dimmed
 to show the choice is pending rather than live. Pull mode is per-run and resets to
-Leeroy when you stop.
+Dynamic when you stop.
 
 ### Reading the status
 
