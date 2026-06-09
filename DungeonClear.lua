@@ -166,7 +166,13 @@ stateLabel:SetText("Current State:")
 stateLabel:SetTextColor(0.8, 0.8, 0.8)
 
 local stateVal = statusFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-stateVal:SetPoint("LEFT", stateLabel, "RIGHT", 5, 0)
+-- Anchor TOPLEFT (not LEFT) so a wrapped second line grows downward instead of
+-- expanding around the vertical center into the row above. Width-bounded + LEFT
+-- justified so a long state string word-wraps within the frame rather than
+-- spilling outside the window (mirrors the stallVal treatment below).
+stateVal:SetPoint("TOPLEFT", stateLabel, "TOPRIGHT", 5, 0)
+stateVal:SetWidth(196)
+stateVal:SetJustifyH("LEFT")
 stateVal:SetText("Inactive")
 stateVal:SetTextColor(0.6, 0.6, 0.6)
 
@@ -284,11 +290,7 @@ local function UpdateStatusUI(enabled, targetName, state, stallReason, detail, p
         local stateText = state or "Idle"
         local stateColor = {0.8, 0.8, 0.8}
         if state == "paused" then
-            -- `detail` carries WHY we're paused (a manual hold, or a door the
-            -- tank can't open). Surface that cause in the label instead of a
-            -- static "holding position" so players know the status at a glance.
-            local reason = (detail and detail ~= "") and detail or "holding position"
-            stateText = "Paused (" .. reason .. ")"
+            stateText = "Paused"
             stateColor = {0.9, 0.8, 0.2} -- Yellow
         elseif state == "pulling" then
             stateText = "Advanced Pull"
@@ -331,9 +333,11 @@ local function UpdateStatusUI(enabled, targetName, state, stallReason, detail, p
         stateVal:SetTextColor(unpack(stateColor))
 
         if state == "paused" then
-            -- The cause already rides in the label above; use the sub-line to
-            -- reassure that nothing is lost while the run is held.
-            detailVal:SetText("Holding position; boss progress saved.")
+            -- `detail` carries WHY we're paused (a manual hold, or a door the
+            -- tank can't open) and can be a long sentence, so surface it on the
+            -- wrapping sub-line rather than the fixed-width state label above.
+            local reason = (detail and detail ~= "") and detail or "holding position"
+            detailVal:SetText("Holding (" .. reason .. "); boss progress saved.")
         else
             detailVal:SetText(detail or "")
         end
