@@ -41,6 +41,7 @@ local function GetInstanceKey()
 end
 local UpdateFrameHeight, UpdateLayout
 local pauseBtn
+local spectateBtn
 local pullLabel          -- "Pull:" caption left of the segmented control
 local pullSegs = {}      -- [0]=Off [1]=On [2]=Dynamic segment buttons (full mode)
 local tinyPullDot        -- compact cycling pull circle (tiny mode)
@@ -488,6 +489,18 @@ for i = 0, 2 do
     pullSegs[i] = seg
 end
 
+-- Spectate toggle on its own row: detaches the player into a free-flying
+-- camera while their character keeps running under bot AI (server-side
+-- possession of an invisible dummy). Stateless label v1 — the server messages
+-- confirm on/off. Independent of DC on/off, so it is never disabled.
+spectateBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+spectateBtn:SetSize(100, 24)
+-- The pull-row segments span -8..-32 below onBtn (24px buttons centered on
+-- the label); start this row at -40 to keep the 8px row gap.
+spectateBtn:SetPoint("TOPLEFT", onBtn, "BOTTOMLEFT", 0, -40)
+spectateBtn:SetText("Spectate")
+spectateBtn:SetScript("OnClick", function() SendDcCommand("spectate") end)
+
 -- Invisible click target over the tiny circle. Off -> start DC; running ->
 -- toggle pause/resume. Only shown in tiny mode (see UpdateLayout). Sits over
 -- just the 16x16 dot so dragging the rest of the bar still works.
@@ -674,8 +687,9 @@ end
 
 -- Boss List Label
 local listLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
--- Below the pull row: onBtn bottom, minus the 8px gap + 24px segment row + 12px.
-listLabel:SetPoint("TOPLEFT", onBtn, "BOTTOMLEFT", 0, -44)
+-- Below the pull + spectate rows: onBtn bottom, minus the 8px gap + 24px
+-- segment row + 8px gap + 24px spectate row + 12px.
+listLabel:SetPoint("TOPLEFT", onBtn, "BOTTOMLEFT", 0, -76)
 listLabel:SetText("Dungeon Bosses")
 listLabel:SetTextColor(0.24, 0.60, 1.0)
 
@@ -850,11 +864,11 @@ UpdateFrameHeight = function()
         UpdateTinyWidth()
     else
         frame:SetWidth(330)
-        -- +32 for the advanced-pull button row (24px button + 8px gap).
+        -- +32 each for the advanced-pull and spectate rows (24px button + 8px gap).
         if DungeonClearDB.bossesFolded then
-            frame:SetHeight(hasStall and 288 or 268)
+            frame:SetHeight(hasStall and 320 or 300)
         else
-            frame:SetHeight(hasStall and 518 or 498)
+            frame:SetHeight(hasStall and 550 or 530)
         end
     end
 end
@@ -871,6 +885,7 @@ UpdateLayout = function()
         if pauseBtn then pauseBtn:Hide() end
         if pullLabel then pullLabel:Hide() end
         for i = 0, 2 do if pullSegs[i] then pullSegs[i]:Hide() end end
+        if spectateBtn then spectateBtn:Hide() end
         listLabel:Hide()
         toggleBossesBtn:Hide()
         scrollContainer:Hide()
@@ -900,6 +915,7 @@ UpdateLayout = function()
         if pauseBtn then pauseBtn:Show() end
         if pullLabel then pullLabel:Show() end
         for i = 0, 2 do if pullSegs[i] then pullSegs[i]:Show() end end
+        if spectateBtn then spectateBtn:Show() end
         listLabel:Show()
         toggleBossesBtn:Show()
         statusFrame:Show()
@@ -1243,6 +1259,8 @@ optCmdList:SetText(
     "pack (charges in) but uses the careful |cff4db3ffAdvanced|r pull when packs are bunched in a room. The live " ..
     "choice shows on the Dyn control. " ..
     "|cff8c8c8cOff|r: walk up and fight in place.\n" ..
+    "|cffffd100Spectate|r  \226\128\148  Detach into a free-flying camera while your character keeps " ..
+    "running under bot AI. Click again (or |cffffd100.dc spectate|r) to return to your body.\n" ..
     "|cffffd100Go|r (per boss row)  \226\128\148  Send the tank straight to that boss (turns the clear on first).\n" ..
     "|cffffd100Tiny|r  \226\128\148  Collapse the window to a single-line, movable readout.\n" ..
     "|cffffd100Settings|r (sub-page)  \226\128\148  Override the server defaults (loot quality, rest %, " ..
