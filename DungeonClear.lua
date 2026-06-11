@@ -42,6 +42,8 @@ end
 local UpdateFrameHeight, UpdateLayout
 local pauseBtn
 local spectateBtn
+local spectateAvailable        -- server allows the spectator camera? (SPECTATE msg)
+local ApplySpectateAvailability -- enable/disable the Spectate button to match
 local pullLabel          -- "Pull:" caption left of the segmented control
 local pullSegs = {}      -- [0]=Off [1]=On [2]=Dynamic segment buttons (full mode)
 local tinyPullDot        -- compact cycling pull circle (tiny mode)
@@ -492,7 +494,10 @@ end
 -- Spectate toggle on its own row: detaches the player into a free-flying
 -- camera while their character keeps running under bot AI (server-side
 -- possession of an invisible dummy). Stateless label v1 — the server messages
--- confirm on/off. Independent of DC on/off, so it is never disabled.
+-- confirm on/off. Independent of DC on/off, but the server can disable the
+-- feature entirely (DungeonClear.SpectateEnable = 0): when it does, the SPECTATE
+-- message flips spectateAvailable false and the button greys out (see
+-- ApplySpectateAvailability). Assume available until the server says otherwise.
 spectateBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
 spectateBtn:SetSize(100, 24)
 -- The pull-row segments span -8..-32 below onBtn (24px buttons centered on
@@ -500,6 +505,30 @@ spectateBtn:SetSize(100, 24)
 spectateBtn:SetPoint("TOPLEFT", onBtn, "BOTTOMLEFT", 0, -40)
 spectateBtn:SetText("Spectate")
 spectateBtn:SetScript("OnClick", function() SendDcCommand("spectate") end)
+
+-- Grey out and disable the Spectate button when the server has the feature
+-- switched off, so the player can't click into a refusal. A disabled
+-- UIPanelButtonTemplate is automatically dimmed and unclickable; the tooltip
+-- explains why.
+spectateAvailable = true
+ApplySpectateAvailability = function()
+    if not spectateBtn then return end
+    if spectateAvailable then
+        spectateBtn:Enable()
+    else
+        spectateBtn:Disable()
+    end
+end
+
+spectateBtn:SetScript("OnEnter", function(self)
+    if spectateAvailable then return end
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:SetText("Spectator mode disabled", 1, 1, 1)
+    GameTooltip:AddLine("This server has turned off the spectator camera.",
+        0.8, 0.8, 0.8, true)
+    GameTooltip:Show()
+end)
+spectateBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
 -- Invisible click target over the tiny circle. Off -> start DC; running ->
 -- toggle pause/resume. Only shown in tiny mode (see UpdateLayout). Sits over
@@ -1091,6 +1120,12 @@ local function OnAddonMessage(prefix, message, channel, sender)
         -- One player-facing setting's effective value + schema (key, value, min,
         -- max, type, overridden). Renders/refreshes its control in the panel.
         if HandleSettingsLine then HandleSettingsLine(parts) end
+    elseif parts[1] == "SPECTATE" then
+        -- Server tells us whether the spectator camera is enabled (DungeonClear.
+        -- SpectateEnable). Grey out / disable the button when it's off so a click
+        -- can't run into a refusal. Sent in answer to our status poll.
+        spectateAvailable = (parts[2] ~= "0")
+        if ApplySpectateAvailability then ApplySpectateAvailability() end
     elseif parts[1] == "SYNCEND" then
         if OnSettingsSyncBoundary then OnSettingsSyncBoundary("end") end
     elseif parts[1] == "CHAT" then
