@@ -57,7 +57,8 @@ local isPaused = false
 -- so the pre-STATUS display matches; the first STATUS overwrites it anyway.
 local pullSetting = 2
 -- Live Dynamic verdict for the pack the tank is sizing up (server STATUS index
--- 10): 0 none / 1 Leeroy / 2 Advanced. Only meaningful while pullSetting == 2.
+-- 10): 0 none / 1 Leeroy / 2 Advanced / 3 waiting-for-patrol. Only meaningful
+-- while pullSetting == 2.
 local pullDecision = 0
 -- Display metadata per pull state: segment label, command keyword, accent color.
 local PullStates = {
@@ -66,10 +67,12 @@ local PullStates = {
     [2] = { seg = "Dynamic",  cmd = "dynamic", color = {0.30, 0.70, 1.00} },
 }
 -- Per Dynamic-verdict display: full + tiny labels and an accent. Leeroy = amber
--- (charge in), Advanced = blue (careful pull).
+-- (charge in), Advanced = blue (careful pull), Waiting = yellow (holding for a
+-- patrol to pass before committing).
 local DynVerdicts = {
     [1] = { full = "Leeroy",   tiny = "L", color = {1.00, 0.65, 0.10} },
     [2] = { full = "Advanced", tiny = "A", color = {0.30, 0.70, 1.00} },
+    [3] = { full = "Waiting for patrol", tiny = "W", color = {1.00, 0.90, 0.30} },
 }
 
 -- Settings panel (Interface -> AddOns -> DungeonClear -> Settings). These are
