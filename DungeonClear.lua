@@ -10,7 +10,8 @@ DungeonClearDB = DungeonClearDB or {
     point = "CENTER",
     relativePoint = "CENTER",
     xOfs = 0,
-    yOfs = 0
+    yOfs = 0,
+    minimapPos = 200  -- angle (degrees) of the minimap button around the dial
 }
 
 -- Boss list table. `bosses` is what the UI renders; `pendingBosses` stages an
@@ -1723,6 +1724,75 @@ settingsPanel.refresh = RefreshSettings
 settingsPanel:SetScript("OnShow", RefreshSettings)
 
 InterfaceOptions_AddCategory(settingsPanel)
+
+-- Minimap Button
+-- Self-contained (no LibDBIcon dependency): a draggable button pinned to the
+-- minimap edge. Left-click toggles the main window exactly like /dc; drag moves
+-- it around the dial, with the angle persisted in DungeonClearDB.minimapPos.
+local function ToggleMainWindow()
+    if frame:IsVisible() then
+        frame:Hide()
+    else
+        -- Always reopen in full (non-tiny) mode, matching the /dc behavior.
+        DungeonClearDB.tinyMode = false
+        UpdateLayout()
+        frame:Show()
+    end
+end
+
+local minimapButton = CreateFrame("Button", "DungeonClearMinimapButton", Minimap)
+minimapButton:SetFrameStrata("MEDIUM")
+minimapButton:SetFrameLevel(8)
+minimapButton:SetSize(31, 31)
+minimapButton:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+minimapButton:RegisterForDrag("LeftButton")
+
+local mmOverlay = minimapButton:CreateTexture(nil, "OVERLAY")
+mmOverlay:SetSize(53, 53)
+mmOverlay:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
+mmOverlay:SetPoint("TOPLEFT")
+
+local mmIcon = minimapButton:CreateTexture(nil, "BACKGROUND")
+mmIcon:SetSize(20, 20)
+mmIcon:SetTexture("Interface\\Icons\\inv_misc_enggizmos_17")
+mmIcon:SetPoint("CENTER", minimapButton, "CENTER", 0, 1)
+mmIcon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+
+local function UpdateMinimapButtonPosition()
+    local angle = math.rad(DungeonClearDB.minimapPos or 200)
+    minimapButton:ClearAllPoints()
+    minimapButton:SetPoint("CENTER", Minimap, "CENTER",
+        80 * math.cos(angle), 80 * math.sin(angle))
+end
+
+minimapButton:SetScript("OnDragStart", function(self)
+    self:SetScript("OnUpdate", function()
+        local mx, my = Minimap:GetCenter()
+        local scale = Minimap:GetEffectiveScale()
+        local px, py = GetCursorPosition()
+        px, py = px / scale, py / scale
+        DungeonClearDB.minimapPos = math.deg(math.atan2(py - my, px - mx))
+        UpdateMinimapButtonPosition()
+    end)
+end)
+minimapButton:SetScript("OnDragStop", function(self)
+    self:SetScript("OnUpdate", nil)
+end)
+
+minimapButton:SetScript("OnClick", function(self, button)
+    ToggleMainWindow()
+end)
+
+minimapButton:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+    GameTooltip:AddLine("Dungeon Clear")
+    GameTooltip:AddLine("Left-click to toggle the window.", 1, 1, 1)
+    GameTooltip:AddLine("Drag to reposition this button.", 1, 1, 1)
+    GameTooltip:Show()
+end)
+minimapButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+UpdateMinimapButtonPosition()
 
 -- Slash Command Registration
 SLASH_DUNGEONCLEAR1 = "/dc"
