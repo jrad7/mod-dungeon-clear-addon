@@ -1096,6 +1096,12 @@ local function OnAddonMessage(prefix, message, channel, sender)
         table.insert(pendingBosses, {
             entry = entry,
             encounterIndex = index,
+            -- Arrival order = the server's clear order. Used as the sort
+            -- tiebreak so that several anchors sharing one encounterIndex
+            -- (e.g. Sunken Temple's six forcefield defenders, all index 0)
+            -- keep a stable, server-matching order in the panel — Lua's
+            -- table.sort is not stable, so without this they'd shuffle.
+            seq = #pendingBosses,
             name = name,
             status = status,
             x = x, y = y, z = z,
@@ -1103,9 +1109,14 @@ local function OnAddonMessage(prefix, message, channel, sender)
         })
     elseif parts[1] == "BOSS_END" then
         if #pendingBosses > 0 then
-            -- A real list arrived: commit it, sorted by encounter index.
+            -- A real list arrived: commit it, sorted by encounter index, with
+            -- arrival order as a stable tiebreak so same-index anchors keep the
+            -- server's clear order (see `seq` above).
             table.sort(pendingBosses, function(a, b)
-                return a.encounterIndex < b.encounterIndex
+                if a.encounterIndex ~= b.encounterIndex then
+                    return a.encounterIndex < b.encounterIndex
+                end
+                return (a.seq or 0) < (b.seq or 0)
             end)
             bosses = pendingBosses
             pendingBosses = {}
