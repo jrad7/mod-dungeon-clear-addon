@@ -1805,6 +1805,19 @@ minimapButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
 UpdateMinimapButtonPosition()
 
+-- SavedVariables aren't restored until ADDON_LOADED fires (which happens after
+-- this file has finished executing), so the call above positions the button
+-- using the default angle. Re-apply the persisted angle once the DB is actually
+-- loaded, otherwise the button snaps back to the default on every login.
+local mmLoader = CreateFrame("Frame")
+mmLoader:RegisterEvent("ADDON_LOADED")
+mmLoader:SetScript("OnEvent", function(self, _, name)
+    if name == AddonName then
+        UpdateMinimapButtonPosition()
+        self:UnregisterEvent("ADDON_LOADED")
+    end
+end)
+
 -- Slash Command Registration
 SLASH_DUNGEONCLEAR1 = "/dc"
 SlashCmdList["DUNGEONCLEAR"] = function(msg)
