@@ -372,6 +372,9 @@ local function UpdateStatusUI(enabled, targetName, state, stallReason, detail, p
         if isPaused then
             -- Yellow "away" dot signals a held/paused clear.
             tinyIndicator:SetTexture("Interface\\FriendsFrame\\StatusIcon-Away")
+        elseif state == "stalled" or state == "door_blocked" then
+            -- Red "busy" dot flags an error state that needs player attention.
+            tinyIndicator:SetTexture("Interface\\FriendsFrame\\StatusIcon-DnD")
         else
             tinyIndicator:SetTexture("Interface\\FriendsFrame\\StatusIcon-Online")
         end
@@ -379,8 +382,16 @@ local function UpdateStatusUI(enabled, targetName, state, stallReason, detail, p
         -- Verbose tiny line: the action sentence (who we're waiting on / where
         -- we're heading), colored by the state, then a grey pipe divider and
         -- the target boss name. Falls back to the state label when there's no
-        -- detail (e.g. a stall).
+        -- detail. For an ERROR state (stalled / door-blocked) the server leaves
+        -- `detail` empty and carries the explanation in the separate stall field,
+        -- so surface THAT (capped) instead of a bare, uninformative "Blocked".
         local actionText = (detail and detail ~= "") and detail or tLabel
+        if (not detail or detail == "") and stallReason and stallReason ~= "" then
+            actionText = stallReason
+            if string.len(actionText) > 64 then
+                actionText = string.sub(actionText, 1, 63) .. "..."
+            end
+        end
         local line = "|cff" .. RgbToHex(tColor) .. actionText .. "|r"
         if targetName and targetName ~= "None" and targetName ~= "" then
             -- grey vertical divider between action and boss name
@@ -1878,4 +1889,4 @@ SlashCmdList["DUNGEONCLEAR"] = function(msg)
 end
 
 -- Print loaded notice
-DEFAULT_CHAT_FRAME:AddMessage("|cff3da6ffDungeonClear Addon loaded.|r Type /dc to toggle window, or see Interface > AddOns > DungeonClear.")
+DEFAULT_CHAT_FRAME:AddMessage("|cff3da6ffDungeonClear Addon v3.1 loaded.|r Type /dc to toggle window, or see Interface > AddOns > DungeonClear.")
