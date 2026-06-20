@@ -775,6 +775,15 @@ for i = 1, VISIBLE_ROWS do
     row.text:SetWidth(150)
     row.text:SetJustifyH("LEFT")
 
+    -- Folded-event sub-line: a gating event (e.g. an Uldaman altar) shown under
+    -- the boss it gates, instead of as its own row with a Go that can't resolve.
+    -- Hidden unless the BOSS message carried an event note (field 10).
+    row.sub = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    row.sub:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 14, 2)
+    row.sub:SetWidth(200)
+    row.sub:SetJustifyH("LEFT")
+    row.sub:Hide()
+
     -- Status badge
     row.status = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     row.status:SetPoint("LEFT", row.text, "RIGHT", 5, 0)
@@ -797,8 +806,11 @@ RedrawBossList = function()
         FauxScrollFrame_Update(scrollFrame, 0, VISIBLE_ROWS, ROW_HEIGHT)
         for i = 1, VISIBLE_ROWS do bossRows[i]:Hide() end
         local row = bossRows[1]
+        row.text:ClearAllPoints()
+        row.text:SetPoint("LEFT", row, "LEFT", 8, 0)
         row.text:SetText("Loading boss list...")
         row.text:SetTextColor(0.6, 0.6, 0.6)
+        row.sub:Hide()
         row.status:SetText("")
         row.goBtn:Hide()
         row:Show()
@@ -829,6 +841,18 @@ RedrawBossList = function()
             -- entry reusing that row must restore the normal white highlight.
             row.text:SetTextColor(1, 1, 1)
 
+            -- Folded gating event: render it as a sub-line and lift the boss name
+            -- to the top of the row so both fit; otherwise keep the name centered.
+            row.text:ClearAllPoints()
+            if boss.eventNote then
+                row.text:SetPoint("TOPLEFT", row, "TOPLEFT", 8, -3)
+                row.sub:SetText("|cffc8a02e\226\148\148 " .. boss.eventNote .. "|r")
+                row.sub:Show()
+            else
+                row.text:SetPoint("LEFT", row, "LEFT", 8, 0)
+                row.sub:Hide()
+            end
+
             -- Style status color
             local statusLabelText = "Alive"
             local statusColor = {0.1, 0.9, 0.1}
@@ -846,6 +870,14 @@ RedrawBossList = function()
                 statusLabelText = "Missing"
                 statusColor = {0.5, 0.5, 0.7}
                 showGo = true
+            end
+
+            -- Standalone off-path "Event:" rows (gates with no boss to drive to —
+            -- they fire automatically as the tank passes) get no Go button; it
+            -- could never resolve to a creature. Boss-gating events are folded
+            -- into their boss row (above) and keep the boss's own working Go.
+            if boss.name and string.sub(boss.name, 1, 6) == "Event:" then
+                showGo = false
             end
 
             row.status:SetText(statusLabelText)
@@ -1092,10 +1124,16 @@ local function OnAddonMessage(prefix, message, channel, sender)
         -- single-wing dungeons. Older servers omit it; nil is fine.
         local wing = parts[9]
         if wing == "" then wing = nil end
+        -- Optional trailing field (index 10): folded-event note for an event that
+        -- gates this boss (e.g. "Activate the Altar (pending)"). Rendered as a
+        -- sub-line under the row. Older servers omit it; nil reads as none.
+        local eventNote = parts[10]
+        if eventNote == "" then eventNote = nil end
 
         table.insert(pendingBosses, {
             entry = entry,
             encounterIndex = index,
+            eventNote = eventNote,
             -- Arrival order = the server's clear order. Used as the sort
             -- tiebreak so that several anchors sharing one encounterIndex
             -- (e.g. Sunken Temple's six forcefield defenders, all index 0)
