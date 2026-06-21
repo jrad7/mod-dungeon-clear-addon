@@ -801,8 +801,10 @@ for i = 1, VISIBLE_ROWS do
     -- the boss it gates, instead of as its own row with a Go that can't resolve.
     -- Hidden unless the BOSS message carried an event note (field 10).
     row.sub = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    row.sub:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 14, 3)
-    row.sub:SetWidth(238)
+    row.sub:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 16, 3)
+    -- Stop short of the Go button on the row's right (it sits at x~210); a wider
+    -- note would render underneath it.
+    row.sub:SetWidth(185)
     row.sub:SetJustifyH("LEFT")
     -- Single line only: a long note must truncate, never wrap down onto the
     -- next boss's row (that was the overlap bug).
@@ -871,7 +873,9 @@ RedrawBossList = function()
             row.text:ClearAllPoints()
             if boss.eventNote then
                 row.text:SetPoint("TOPLEFT", row, "TOPLEFT", 8, -3)
-                row.sub:SetText("|cffc8a02e\226\148\148 " .. boss.eventNote .. "|r")
+                -- Plain ASCII marker: the box-drawing glyph the WoW font lacks
+                -- rendered as "?". The indent + gold colour subordinate it.
+                row.sub:SetText("|cffc8a02e- " .. boss.eventNote .. "|r")
                 row.sub:Show()
             else
                 row.text:SetPoint("LEFT", row, "LEFT", 8, 0)
