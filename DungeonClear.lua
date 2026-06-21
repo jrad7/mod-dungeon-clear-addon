@@ -821,6 +821,31 @@ for i = 1, VISIBLE_ROWS do
     row.goBtn:SetPoint("RIGHT", row, "RIGHT", -6, 0)
     row.goBtn:SetText("Go")
 
+    -- Hovering a row with a folded event shows the full note in a tooltip, so a
+    -- name too long for the bottom band (which truncates) is still readable.
+    -- RedrawBossList stashes the boss name + raw note on the row each draw.
+    row:EnableMouse(true)
+    row:SetScript("OnEnter", function(self)
+        if not self.eventNoteFull or self.eventNoteFull == "" then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        if self.bossName then
+            GameTooltip:AddLine(self.bossName, 1, 1, 1)
+        end
+        -- Multiple folded events arrive joined by " | "; one tooltip line each.
+        for note in string.gmatch(self.eventNoteFull, "[^|]+") do
+            GameTooltip:AddLine(strtrim(note), 0.78, 0.63, 0.18, true)
+        end
+        GameTooltip:Show()
+    end)
+    row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    -- EnableMouse swallows the wheel, so forward it to keep the list scrollable
+    -- while the cursor is over a row.
+    row:EnableMouseWheel(true)
+    row:SetScript("OnMouseWheel", function(_, delta)
+        local bar = DungeonClearScrollFrameScrollBar
+        bar:SetValue(bar:GetValue() - delta * ROW_HEIGHT)
+    end)
+
     bossRows[i] = row
 end
 
@@ -833,6 +858,7 @@ RedrawBossList = function()
         FauxScrollFrame_Update(scrollFrame, 0, VISIBLE_ROWS, ROW_HEIGHT)
         for i = 1, VISIBLE_ROWS do bossRows[i]:Hide() end
         local row = bossRows[1]
+        row.eventNoteFull = nil
         row.text:ClearAllPoints()
         row.text:SetPoint("LEFT", row, "LEFT", 8, 0)
         row.text:SetText("Loading boss list...")
@@ -870,6 +896,10 @@ RedrawBossList = function()
 
             -- Folded gating event: render it as a sub-line and lift the boss name
             -- to the top of the row so both fit; otherwise keep the name centered.
+            -- Stash for the hover tooltip (full, untruncated note).
+            row.eventNoteFull = boss.eventNote
+            row.bossName = boss.name
+
             row.text:ClearAllPoints()
             row.goBtn:ClearAllPoints()
             if boss.eventNote then
