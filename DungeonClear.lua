@@ -802,9 +802,9 @@ for i = 1, VISIBLE_ROWS do
     -- Hidden unless the BOSS message carried an event note (field 10).
     row.sub = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     row.sub:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 16, 3)
-    -- Stop short of the Go button on the row's right (it sits at x~210); a wider
-    -- note would render underneath it.
-    row.sub:SetWidth(185)
+    -- Near-full row width: on event rows the Go button is lifted onto the name
+    -- line (see RedrawBossList) so the note owns the whole bottom band.
+    row.sub:SetWidth(234)
     row.sub:SetJustifyH("LEFT")
     -- Single line only: a long note must truncate, never wrap down onto the
     -- next boss's row (that was the overlap bug).
@@ -871,14 +871,20 @@ RedrawBossList = function()
             -- Folded gating event: render it as a sub-line and lift the boss name
             -- to the top of the row so both fit; otherwise keep the name centered.
             row.text:ClearAllPoints()
+            row.goBtn:ClearAllPoints()
             if boss.eventNote then
+                -- Two bands: name (+ Go) on top, the event note full-width along
+                -- the bottom. Lifting Go onto the name line keeps it clear of the
+                -- note so the note can use almost the whole row width.
                 row.text:SetPoint("TOPLEFT", row, "TOPLEFT", 8, -3)
+                row.goBtn:SetPoint("TOPRIGHT", row, "TOPRIGHT", -6, -2)
                 -- Plain ASCII marker: the box-drawing glyph the WoW font lacks
                 -- rendered as "?". The indent + gold colour subordinate it.
                 row.sub:SetText("|cffc8a02e- " .. boss.eventNote .. "|r")
                 row.sub:Show()
             else
                 row.text:SetPoint("LEFT", row, "LEFT", 8, 0)
+                row.goBtn:SetPoint("RIGHT", row, "RIGHT", -6, 0)
                 row.sub:Hide()
             end
 
