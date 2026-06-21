@@ -850,6 +850,31 @@ for i = 1, VISIBLE_ROWS do
     bossRows[i] = row
 end
 
+-- Colour a folded-event sub-line by each event's completion state. The server
+-- (DungeonClearChatActions) appends " (done)" / " (skipped)" to finished events
+-- and leaves pending ones bare; several events gating one boss arrive joined by
+-- " | ". Done events get a green ready-check tick + green text, skipped events
+-- grey out, pending events keep the gold dash.
+local function FormatEventNote(note)
+    local out = {}
+    for seg in string.gmatch(note, "[^|]+") do
+        seg = strtrim(seg)
+        if seg ~= "" then
+            local piece
+            if string.find(seg, "%(done%)$") then
+                -- Ready-check tick doubles as the "completed" checkbox.
+                piece = "|TInterface\\RaidFrame\\ReadyCheck-Ready:12:12|t |cff3fd03f" .. seg .. "|r"
+            elseif string.find(seg, "%(skipped%)$") then
+                piece = "|cff888888- " .. seg .. "|r"
+            else
+                piece = "|cffc8a02e- " .. seg .. "|r"
+            end
+            table.insert(out, piece)
+        end
+    end
+    return table.concat(out, "  ")
+end
+
 -- Redraw Boss List rows (FauxScrollFrame implementation)
 RedrawBossList = function()
     -- Never render a blank panel. Until a real list arrives, show a single
@@ -914,9 +939,9 @@ RedrawBossList = function()
                 row.text:SetPoint("TOPLEFT", row, "TOPLEFT", 8, -3)
                 row.goBtn:SetPoint("TOPRIGHT", row, "TOPRIGHT", -6, -2)
                 row.sub:SetPoint("TOPLEFT", row.text, "BOTTOMLEFT", 8, -2)
-                -- Plain ASCII marker: the box-drawing glyph the WoW font lacks
-                -- rendered as "?". The indent + gold colour subordinate it.
-                row.sub:SetText("|cffc8a02e- " .. boss.eventNote .. "|r")
+                -- Per-event colouring: pending = gold dash, done = green tick,
+                -- skipped = grey (see FormatEventNote).
+                row.sub:SetText(FormatEventNote(boss.eventNote))
                 row.sub:Show()
             else
                 -- No sub-line: let a long name (e.g. "Objective: Atal'ai Defender
