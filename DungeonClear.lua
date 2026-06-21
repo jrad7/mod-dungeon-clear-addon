@@ -194,7 +194,13 @@ detailVal:SetTextColor(0.7, 0.7, 0.7)
 detailVal:SetText("")
 
 local targetLabel = statusFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-targetLabel:SetPoint("TOPLEFT", stateLabel, "BOTTOMLEFT", 0, -34)
+-- Reserve enough vertical room for a TWO-LINE detail sub-line above (a long
+-- "En route to <boss>." with a parenthesised boss name wraps to two lines of
+-- GameFontHighlightSmall, ~17px each). The old -34 left only ~32px, so the
+-- second detail line landed on this Next Boss row. -44 clears two full lines
+-- with margin; everything below shifts down the same 10px (see the matching
+-- statusFrame / frame height bumps) so no new overlap is introduced.
+targetLabel:SetPoint("TOPLEFT", stateLabel, "BOTTOMLEFT", 0, -44)
 targetLabel:SetText("Next Boss:")
 targetLabel:SetTextColor(0.8, 0.8, 0.8)
 
@@ -282,7 +288,7 @@ local function UpdateStatusUI(enabled, targetName, state, stallReason, detail, p
         targetVal:SetTextColor(0.6, 0.6, 0.6)
         stallLabel:Hide()
         stallVal:Hide()
-        statusFrame:SetHeight(121)
+        statusFrame:SetHeight(131)
     else
         isDCOn = true
         if isPaused then
@@ -356,11 +362,11 @@ local function UpdateStatusUI(enabled, targetName, state, stallReason, detail, p
             stallLabel:Show()
             stallVal:Show()
             stallVal:SetText(stallReason)
-            statusFrame:SetHeight(141)
+            statusFrame:SetHeight(151)
         else
             stallLabel:Hide()
             stallVal:Hide()
-            statusFrame:SetHeight(121)
+            statusFrame:SetHeight(131)
         end
     end
 
@@ -941,10 +947,12 @@ UpdateFrameHeight = function()
     else
         frame:SetWidth(330)
         -- +32 each for the advanced-pull and spectate rows (24px button + 8px gap).
+        -- The base figures include the +10 reserve added to statusFrame so a
+        -- two-line detail sub-line clears the Next Boss row (see targetLabel).
         if DungeonClearDB.bossesFolded then
-            frame:SetHeight(hasStall and 320 or 300)
+            frame:SetHeight(hasStall and 330 or 310)
         else
-            frame:SetHeight(hasStall and 550 or 530)
+            frame:SetHeight(hasStall and 560 or 540)
         end
     end
 end
