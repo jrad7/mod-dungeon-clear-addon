@@ -756,8 +756,12 @@ scrollContainer:SetBackdrop({
 scrollContainer:SetBackdropColor(0.05, 0.05, 0.08, 0.50)
 scrollContainer:SetBackdropBorderColor(0.15, 0.17, 0.22, 0.8)
 
-local ROW_HEIGHT = 30
-local VISIBLE_ROWS = 6
+-- Rows are tall enough to hold a boss name plus an optional folded-event
+-- sub-line without the two colliding. Most rows show one centered line; an
+-- event-bearing row stacks name-over-note inside the same height. Fewer rows
+-- are visible at once than the old single-line layout, but the list scrolls.
+local ROW_HEIGHT = 38
+local VISIBLE_ROWS = 5
 
 -- Scrollable boss list. FauxScrollFrame is the idiomatic WotLK pattern: a small
 -- fixed pool of visible rows is reused while an offset selects which slice of
@@ -791,14 +795,18 @@ for i = 1, VISIBLE_ROWS do
     row.text:SetPoint("LEFT", row, "LEFT", 8, 0)
     row.text:SetWidth(150)
     row.text:SetJustifyH("LEFT")
+    row.text:SetWordWrap(false)
 
     -- Folded-event sub-line: a gating event (e.g. an Uldaman altar) shown under
     -- the boss it gates, instead of as its own row with a Go that can't resolve.
     -- Hidden unless the BOSS message carried an event note (field 10).
     row.sub = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    row.sub:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 14, 2)
-    row.sub:SetWidth(200)
+    row.sub:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 14, 3)
+    row.sub:SetWidth(238)
     row.sub:SetJustifyH("LEFT")
+    -- Single line only: a long note must truncate, never wrap down onto the
+    -- next boss's row (that was the overlap bug).
+    row.sub:SetWordWrap(false)
     row.sub:Hide()
 
     -- Status badge
