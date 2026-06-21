@@ -729,7 +729,7 @@ UpdatePullControls = function()
             color = {color[1] * dim, color[2] * dim, color[3] * dim}
         end
         if tinyPullText then
-            tinyPullText:SetText("|cff" .. RgbToHex(color) .. label .. "|r |cff808080|||r")
+            tinyPullText:SetText("|cff" .. RgbToHex(color) .. label .. "|r |cff808080|| |r")
         end
         if DungeonClearDB.tinyMode then UpdateTinyWidth() end
     end
