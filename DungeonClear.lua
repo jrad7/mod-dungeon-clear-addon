@@ -756,12 +756,13 @@ scrollContainer:SetBackdrop({
 scrollContainer:SetBackdropColor(0.05, 0.05, 0.08, 0.50)
 scrollContainer:SetBackdropBorderColor(0.15, 0.17, 0.22, 0.8)
 
--- Rows are tall enough to hold a boss name plus an optional folded-event
--- sub-line without the two colliding. Most rows show one centered line; an
--- event-bearing row stacks name-over-note inside the same height. Fewer rows
--- are visible at once than the old single-line layout, but the list scrolls.
-local ROW_HEIGHT = 38
-local VISIBLE_ROWS = 5
+-- Uniform row height sized for the worst case: a two-line wrapped name plus a
+-- folded-event note beneath it. FauxScrollFrame requires a single fixed row
+-- height (all its offset/range math multiplies by it), so short rows are padded
+-- to this height rather than shrinking. The note is anchored under the name (not
+-- a fixed band) so the name can wrap freely and the note floats down with it.
+local ROW_HEIGHT = 48
+local VISIBLE_ROWS = 4
 
 -- Scrollable boss list. FauxScrollFrame is the idiomatic WotLK pattern: a small
 -- fixed pool of visible rows is reused while an offset selects which slice of
@@ -902,14 +903,17 @@ RedrawBossList = function()
 
             row.text:ClearAllPoints()
             row.goBtn:ClearAllPoints()
+            row.sub:ClearAllPoints()
             if boss.eventNote then
-                -- Two bands: name (+ Go) on top, the event note full-width along
-                -- the bottom. Lifting Go onto the name line keeps it clear of the
-                -- note so the note can use almost the whole row width. The name
-                -- must stay one line here or it would collide with the note.
-                row.text:SetWordWrap(false)
+                -- Name (+ Go) on top, the event note directly beneath it. The
+                -- note is anchored to the name's BOTTOM (not a fixed row band) so
+                -- the name is free to wrap to a second line — the note simply
+                -- floats down with it instead of being collided into. Lifting Go
+                -- onto the name line keeps it clear of the note.
+                row.text:SetWordWrap(true)
                 row.text:SetPoint("TOPLEFT", row, "TOPLEFT", 8, -3)
                 row.goBtn:SetPoint("TOPRIGHT", row, "TOPRIGHT", -6, -2)
+                row.sub:SetPoint("TOPLEFT", row.text, "BOTTOMLEFT", 8, -2)
                 -- Plain ASCII marker: the box-drawing glyph the WoW font lacks
                 -- rendered as "?". The indent + gold colour subordinate it.
                 row.sub:SetText("|cffc8a02e- " .. boss.eventNote .. "|r")
