@@ -905,7 +905,9 @@ RedrawBossList = function()
             if boss.eventNote then
                 -- Two bands: name (+ Go) on top, the event note full-width along
                 -- the bottom. Lifting Go onto the name line keeps it clear of the
-                -- note so the note can use almost the whole row width.
+                -- note so the note can use almost the whole row width. The name
+                -- must stay one line here or it would collide with the note.
+                row.text:SetWordWrap(false)
                 row.text:SetPoint("TOPLEFT", row, "TOPLEFT", 8, -3)
                 row.goBtn:SetPoint("TOPRIGHT", row, "TOPRIGHT", -6, -2)
                 -- Plain ASCII marker: the box-drawing glyph the WoW font lacks
@@ -913,6 +915,10 @@ RedrawBossList = function()
                 row.sub:SetText("|cffc8a02e- " .. boss.eventNote .. "|r")
                 row.sub:Show()
             else
+                -- No sub-line: let a long name (e.g. "Objective: Atal'ai Defender
+                -- (Mijan)") wrap to a second line instead of truncating. The row
+                -- is tall enough for two lines, and the name owns the full height.
+                row.text:SetWordWrap(true)
                 row.text:SetPoint("LEFT", row, "LEFT", 8, 0)
                 row.goBtn:SetPoint("RIGHT", row, "RIGHT", -6, 0)
                 row.sub:Hide()
