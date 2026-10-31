@@ -5,7 +5,7 @@
 > Cloning or downloading this repo gives you a folder named
 > `mod-dungeon-clear-addon`. The client will **not** load it under that name —
 > the folder inside `Interface/AddOns/` has to be exactly `DungeonClear` (with
-> `DungeonClear.toc` and `DungeonClear.lua` directly inside it). Rename it after
+> `DungeonClear.toc`, `DungeonClear.lua` and `DungeonClear_GrindLoop.lua` directly inside it). Rename it after
 > copying. See [Installation](#installation) below.
 
 A simple in-game panel for **World of Warcraft 3.3.5a** that lets you send a
@@ -54,7 +54,7 @@ for loot, opens doors, and recovers from stalls. With this addon you just press
 ## Installation
 
 1. Download or clone this repository.
-2. Copy the `DungeonClear` folder (with `DungeonClear.toc` and `DungeonClear.lua`
+2. Copy the `DungeonClear` folder (with `DungeonClear.toc`, `DungeonClear.lua` and `DungeonClear_GrindLoop.lua`
    inside it) into your client's add-on directory:
 
    ```
@@ -80,6 +80,7 @@ you try while solo.
 | **On** | Start the dungeon clear for your party's tank bot. |
 | **Off** | Stop it; other bots go back to following you. |
 | **Skip** | Skip the current boss or objective and move on. |
+| **Grind** | Autoqueues and Requeues the last selection on the Dungeon Finder tool. |
 | **Pause / Resume** | Hold the tank in place without ending the run, then let it carry on. |
 | **Go** (on a boss row) | Send the tank to that boss (starts the clear if it isn't already on). |
 | **Tiny** | Shrink the panel to a single line. |
@@ -181,6 +182,7 @@ If you'd rather type, every button has a command:
 | `/dc status` | Refresh the status line. |
 | `/dc bosses` | Refresh the boss list. |
 | `/dc go <entry>` | Send the tank to a boss by its creature id. |
+| `/dcgrind on/off` | Deactivates/Activates the automatic queueing. |
 
 ## Troubleshooting
 
@@ -198,7 +200,7 @@ If you'd rather type, every button has a command:
 - **You can't drive the tank if you're playing it yourself.** Dungeon clear
   controls a tank *bot*, so the tank has to be a bot — or your own character in
   self-bot mode. See the module README.
-
+- **Grind doesn't work** Make Sure you're the leader of the party.
 ## License
 
 AGPL-3.0-or-later, inherited from mod-playerbots / mod-dungeon-clear.

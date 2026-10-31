@@ -6,3 +6,4 @@
 ## SavedVariables: DungeonClearDB
 
 DungeonClear.lua
+DungeonClear_GrindLoop.lua
