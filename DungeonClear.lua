@@ -338,6 +338,7 @@ local function FormatStateTiny(state)
     elseif state == "pathing" then return "Plotting Route", {0.4, 0.7, 0.9}
     elseif state == "pursuing" then return "Closing In", {0.3, 0.8, 1}
     elseif state == "recovering" then return "Repathing", {0.9, 0.6, 0.2}
+    elseif state == "event" then return "Running Event", {0.4, 0.9, 0.7}
     elseif state == "resting" then return "Resting", {0.9, 0.8, 0.2}
     elseif state == "looting" then return "Looting", {0.9, 0.6, 0.1}
     elseif state == "door_blocked" then return "Door Blocked", {0.9, 0.2, 0.2}
@@ -412,6 +413,11 @@ local function UpdateStatusUI(enabled, targetName, state, stallReason, detail, p
         elseif state == "recovering" then
             stateText = "Recovering / Repathing"
             stateColor = {0.9, 0.6, 0.2} -- Amber
+        elseif state == "event" then
+            -- A scripted event (orb run, transit, lever, gossip); the server
+            -- names it in `detail`, which the sub-line below shows.
+            stateText = "Running Scripted Event"
+            stateColor = {0.4, 0.9, 0.7} -- Teal
         elseif state == "resting" then
             stateText = "Party Recovering / Resting"
             stateColor = {0.9, 0.8, 0.2} -- Yellow
